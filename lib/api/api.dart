@@ -1,1 +1,3 @@
-/// Placeholder for api library\n
+library api;
+
+export 'lanraragi_client.dart';\n
