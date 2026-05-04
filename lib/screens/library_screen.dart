@@ -47,7 +47,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(settingsProvider);
+    final settings = SettingsModel.instance;
     final hasClient = ref.watch(lanraragiClientProvider) != null;
 
     return Scaffold(

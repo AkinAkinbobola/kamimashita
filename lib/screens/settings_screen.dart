@@ -17,7 +17,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    final s = ref.read(settingsProvider);
+    final s = SettingsModel.instance;
     _urlController.text = s.serverUrl;
     _apiController.text = s.apiKey;
   }
@@ -30,7 +30,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _save() async {
-    await ref.read(settingsProvider.notifier).update(serverUrl: _urlController.text.trim(), apiKey: _apiController.text.trim());
+    await SettingsModel.instance.update(serverUrl: _urlController.text.trim(), apiKey: _apiController.text.trim());
     if (mounted) Navigator.of(context).pop();
   }
 
