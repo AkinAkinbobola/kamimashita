@@ -19,8 +19,9 @@ class Archive {
     if (json.containsKey('id')) id = json['id'].toString();
     if (json.containsKey('archiveid')) id = json['archiveid'].toString();
     if (json.containsKey('ArchiveID')) id = json['ArchiveID'].toString();
+    if (json.containsKey('arcid')) id = json['arcid'].toString();
 
-    String title = json['title']?.toString() ?? json['Name']?.toString() ?? '';
+    String title = json['title']?.toString() ?? json['Name']?.toString() ?? json['filename']?.toString() ?? '';
 
     String? cover;
     if (json.containsKey('cover')) cover = json['cover']?.toString();
@@ -33,6 +34,11 @@ class Archive {
       if (p is int) pageCount = p;
       if (p is String) pageCount = int.tryParse(p);
       if (p is List) pageCount = p.length;
+    }
+    if (json.containsKey('pagecount')) {
+      final p = json['pagecount'];
+      if (p is int) pageCount = p;
+      if (p is String) pageCount = int.tryParse(p);
     }
 
     int? year;

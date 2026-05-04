@@ -39,9 +39,10 @@ class LanraragiClient {
   }
 
   /// List library entries. Attempts /api/list by default.
-  Future<List<Archive>> listLibrary({int page = 1, int perPage = 50}) async {
+  Future<List<Archive>> listLibrary({int start = -1, int page = 1}) async {
+    // Use /api/search with start=-1 to request unpaged data when supported by server.
     try {
-      final resp = await _dio.get('/api/list', queryParameters: {'page': page, 'perPage': perPage});
+      final resp = await _dio.get('/api/search', queryParameters: {'start': start, 'page': page});
       final items = _unwrapList(resp);
       return items.map((e) => Archive.fromJson(Map<String, dynamic>.from(e as Map))).toList();
     } on DioError catch (e) {
@@ -49,10 +50,10 @@ class LanraragiClient {
     }
   }
 
-  /// Search the library; best-effort using /api/search?q=...
-  Future<List<Archive>> search(String query, {int page = 1}) async {
+  /// Search the library using LANraragi's `filter` parameter.
+  Future<List<Archive>> search(String query, {int start = 0}) async {
     try {
-      final resp = await _dio.get('/api/search', queryParameters: {'q': query, 'page': page});
+      final resp = await _dio.get('/api/search', queryParameters: {'filter': query, 'start': start});
       final items = _unwrapList(resp);
       return items.map((e) => Archive.fromJson(Map<String, dynamic>.from(e as Map))).toList();
     } on DioError catch (e) {
