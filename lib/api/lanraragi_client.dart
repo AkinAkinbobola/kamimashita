@@ -64,41 +64,72 @@ class LanraragiClient {
   /// Get page image URLs for an archive ID. LANraragi usually returns a list of URLs.
   /// Attempts a few common endpoints; returns the first successful list.
   Future<List<String>> getPageUrls(String archiveId) async {
-    final candidates = [
-      '/api/getpages/$archiveId',
-      '/api/getpages', // maybe ?id=archiveId
-      '/api/archive/$archiveId/pages',
-      '/api/getpaging/$archiveId',
-    ];
+    // Use the canonical endpoint /api/archives/{id}/files as the single source.
+    final path = '/api/archives/$archiveId/files';
+    try {
+      final resp = await _dio.get(path);
+      final data = resp.data;
+      if (data == null) return [];
 
-    for (final path in candidates) {
-      try {
-        Response resp;
-        if (path.endsWith('/getpages') || path.endsWith('/getpages/')) {
-          resp = await _dio.get(path, queryParameters: {'id': archiveId});
-        } else if (path == '/api/getpages') {
-          resp = await _dio.get(path, queryParameters: {'id': archiveId});
-        } else {
-          resp = await _dio.get(path);
+      // If the endpoint returns a list of strings
+      if (data is List) {
+        // List may contain strings or maps
+        if (data.isEmpty) return [];
+        if (data.first is String) return data.map((e) => e.toString()).toList();
+        if (data.first is Map) {
+          final List<String> urls = [];
+          for (final item in data) {
+            if (item is Map) {
+              if (item.containsKey('url')) {
+                urls.add(item['url'].toString());
+                continue;
+              }
+              if (item.containsKey('name')) {
+                final filename = item['name'].toString();
+                urls.add(_buildArchiveFileUrl(archiveId, filename));
+                continue;
+              }
+              if (item.containsKey('filename')) {
+                final filename = item['filename'].toString();
+                urls.add(_buildArchiveFileUrl(archiveId, filename));
+                continue;
+              }
+            }
+          }
+          if (urls.isNotEmpty) return urls;
         }
-        final data = resp.data;
-        if (data == null) continue;
-        if (data is List) return data.map((e) => e.toString()).toList();
-        if (data is Map) {
-          // common shape: { "pages": ["url1","url2"] } or {"data": [...]}
-          if (data.containsKey('pages') && data['pages'] is List) return (data['pages'] as List).map((e) => e.toString()).toList();
-          if (data.containsKey('data') && data['data'] is List) return (data['data'] as List).map((e) => e.toString()).toList();
-          if (data.containsKey('results') && data['results'] is List) return (data['results'] as List).map((e) => e.toString()).toList();
-          // If the map values include a list of strings, use it
-          for (final v in data.values) {
-            if (v is List && v.isNotEmpty && v.first is String) return v.cast<String>();
+      }
+
+      // If the response is a map with a list inside
+      if (data is Map) {
+        for (final key in ['files', 'data', 'result', 'pages']) {
+          if (data.containsKey(key) && data[key] is List) {
+            final list = data[key] as List;
+            if (list.isEmpty) return [];
+            if (list.first is String) return list.map((e) => e.toString()).toList();
+            final List<String> urls = [];
+            for (final item in list) {
+              if (item is String) urls.add(item);
+              if (item is Map) {
+                if (item.containsKey('url')) urls.add(item['url'].toString());
+                else if (item.containsKey('name')) urls.add(_buildArchiveFileUrl(archiveId, item['name'].toString()));
+                else if (item.containsKey('filename')) urls.add(_buildArchiveFileUrl(archiveId, item['filename'].toString()));
+              }
+            }
+            if (urls.isNotEmpty) return urls;
           }
         }
-      } on DioError catch (_) {
-        // try next
-        continue;
       }
+    } on DioError catch (e) {
+      throw LanraragiException(e.message);
     }
+
     throw LanraragiException('Failed to fetch page URLs for $archiveId');
   }
+
+  String _buildArchiveFileUrl(String archiveId, String filename) {
+    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    return '$base/api/archives/$archiveId/files/${Uri.encodeComponent(filename)}';
+  }
 }
+
