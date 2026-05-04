@@ -16,7 +16,7 @@ class LanraragiClient {
   final String apiKey; // expected base64-encoded string
 
   LanraragiClient(this.baseUrl, this.apiKey)
-      : _dio = Dio(BaseOptions(baseUrl: baseUrl, connectTimeout: 15000, receiveTimeout: 15000)) {
+      : _dio = Dio(BaseOptions(baseUrl: baseUrl, connectTimeout: Duration(milliseconds: 15000), receiveTimeout: Duration(milliseconds: 15000))) {
     if (apiKey.isNotEmpty) {
       _dio.options.headers['Authorization'] = 'Bearer $apiKey';
     }
@@ -46,7 +46,7 @@ class LanraragiClient {
       final items = _unwrapList(resp);
       return items.map((e) => Archive.fromJson(Map<String, dynamic>.from(e as Map))).toList();
     } on DioError catch (e) {
-      throw LanraragiException(e.message);
+      throw LanraragiException(e.message ?? e.toString());
     }
   }
 
@@ -57,7 +57,7 @@ class LanraragiClient {
       final items = _unwrapList(resp);
       return items.map((e) => Archive.fromJson(Map<String, dynamic>.from(e as Map))).toList();
     } on DioError catch (e) {
-      throw LanraragiException(e.message);
+      throw LanraragiException(e.message ?? e.toString());
     }
   }
 
@@ -121,7 +121,7 @@ class LanraragiClient {
         }
       }
     } on DioError catch (e) {
-      throw LanraragiException(e.message);
+      throw LanraragiException(e.message ?? e.toString());
     }
 
     throw LanraragiException('Failed to fetch page URLs for $archiveId');

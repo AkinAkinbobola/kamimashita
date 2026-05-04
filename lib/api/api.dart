@@ -1,3 +1,4 @@
 library api;
 
-export 'lanraragi_client.dart';\n
+export 'lanraragi_client.dart';
+

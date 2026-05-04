@@ -39,7 +39,7 @@ class AppTheme {
       primaryTextTheme: baseText,
       // AppBar
       appBarTheme: AppBarTheme(
-        backgroundColor: Colors.transparent,
+        color: Colors.transparent,
         elevation: 0,
         titleTextStyle: baseText.titleLarge?.copyWith(color: Colors.white),
         iconTheme: const IconThemeData(color: Colors.white70),
