@@ -1,1 +1,2 @@
-/// Placeholder for Riverpod providers\n
+// Central export file for providers used across the app
+export 'settings_provider.dart';\n
