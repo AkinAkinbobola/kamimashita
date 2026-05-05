@@ -1,0 +1,42 @@
+/// Centralized user-facing strings for the app shell and settings flow.
+abstract final class AppStrings {
+  static const appTitle = 'Pleasure Principle';
+  static const settingsTitle = 'Settings';
+  static const settingsSectionTitle = 'Server Connection';
+  static const settingsDescription =
+      'Configure the LANraragi server URL and API key used throughout the app.';
+  static const serverUrlLabel = 'Server URL';
+  static const serverUrlHint = 'https://lrr.example.local';
+  static const apiKeyLabel = 'API Key';
+  static const apiKeyHint = 'Raw or base64-encoded API key';
+  static const backTooltip = 'Back';
+  static const cancel = 'Cancel';
+  static const save = 'Save';
+  static const saving = 'Saving...';
+  static const testConnection = 'Test Connection';
+  static const testingConnection = 'Testing...';
+  static const connectionSuccessful = 'Connection successful.';
+  static const connectionFailed = 'Could not reach the LANraragi server.';
+  static const librarySearchHint = 'Search archives';
+  static const sortByTitle = 'Title';
+  static const sortByLastRead = 'Last read';
+  static const sortAscending = 'Ascending';
+  static const sortDescending = 'Descending';
+  static const allCategories = 'All categories';
+  static const filterNewOnly = 'New only';
+  static const filterUntagged = 'Untagged';
+  static const filterHideCompleted = 'Hide completed';
+  static const noArchivesFound = 'No archives found';
+  static const noServerConfigured = 'No server configured';
+  static const configure = 'Configure';
+  static const refresh = 'Refresh';
+  static const retry = 'Retry';
+  static const randomPick = 'Random Pick';
+  static const pickingRandom = 'Picking...';
+  static const pickingRandomTooltip = 'Picking random archive';
+  static const onDeckTitle = 'ON DECK';
+  static const recentInProgressPlaceholder = 'Recent in-progress archives will appear here.';
+  static const noRecentInProgressArchives = 'No recent in-progress archives.';
+  static const configureServerFirst = 'Configure a server first.';
+  static const noMatchingRandomArchive = 'No matching archives to pick from.';
+}

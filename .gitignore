@@ -3,6 +3,9 @@
 *.log
 *.pyc
 *.swp
+.env
+.env.*
+!.env.example
 .DS_Store
 .atom/
 .build/
@@ -27,11 +30,17 @@ migrate_working_dir/
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
 /build/
 /coverage/
+/dist/
+/windows/flutter/ephemeral/
+/linux/flutter/ephemeral/
+/macos/Flutter/ephemeral/
+/ios/Flutter/ephemeral/
 
 # Symbolication related
 app.*.symbols

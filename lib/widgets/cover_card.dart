@@ -32,16 +32,22 @@ class CoverCard extends StatelessWidget {
                   opacity: isCompleted ? 0.4 : 1,
                   child: ArchiveThumbnail(archive: archive),
                 ),
-                const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [
-                        Color(0xFF0C0A0B),
-                        Color(0x000C0A0B),
-                      ],
-                      stops: [0, 0.45],
+                const Align(
+                  alignment: Alignment.bottomCenter,
+                  child: FractionallySizedBox(
+                    widthFactor: 1,
+                    heightFactor: 0.4,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [
+                            Color(0xFF000000),
+                            Color(0x00000000),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),

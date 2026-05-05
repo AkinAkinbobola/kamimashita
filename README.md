@@ -1,17 +1,55 @@
 # pleasure_principle
 
-A new Flutter project.
+Minimal Flutter client for LANraragi.
 
-## Getting Started
+## Requirements
 
-This project is a starting point for a Flutter application.
+- A running LANraragi instance
+- A valid LANraragi API key
+- Flutter 3 with Dart 3.11+
 
-A few resources to get you started if this is your first Flutter project:
+## Screenshots
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Screenshots are not committed in this repository yet.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## What It Does
+
+- Configure a LANraragi server URL and API key
+- Browse and search the library with filters and sorting
+- Open archive details, covers, and source links
+- Read archives with synced reading progress
+- Surface Random Pick and On Deck from the server
+
+## Run It
+
+```bash
+flutter pub get
+flutter run -d windows
+```
+
+You can also run on another supported Flutter target if needed.
+
+## Build
+
+```bash
+flutter build windows
+```
+
+## Configure It
+
+1. Launch the app.
+2. Open Settings.
+3. Enter your LANraragi server URL and API key.
+4. Save and refresh the library.
+
+## LANraragi Notes
+
+- Server-side reading progress is used when the LANraragi instance supports it.
+- Random Pick and On Deck are loaded from the LANraragi API.
+
+## Development
+
+```bash
+flutter analyze
+flutter test
+```

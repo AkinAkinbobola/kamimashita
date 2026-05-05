@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 
 import '../models/archive.dart';
 
+/// Exception thrown when a LANraragi request fails with a user-facing message.
 class LanraragiException implements Exception {
   final String message;
   LanraragiException(this.message);
@@ -11,6 +12,7 @@ class LanraragiException implements Exception {
   String toString() => 'LanraragiException: $message';
 }
 
+/// Weighted LANraragi tag statistic returned by `/api/database/stats`.
 class LanraragiTagStat {
   const LanraragiTagStat({required this.value, required this.weight});
 
@@ -27,6 +29,7 @@ class LanraragiTagStat {
   final int weight;
 }
 
+/// Paginated archive result set returned by the LANraragi search API.
 class ArchivePage {
   const ArchivePage({
     required this.items,
@@ -45,6 +48,7 @@ class ArchivePage {
   final bool hasMore;
 }
 
+/// Search and filter options supported by the LANraragi search endpoint.
 class ArchiveSearchOptions {
   const ArchiveSearchOptions({
     this.categoryId,
@@ -64,6 +68,7 @@ class ArchiveSearchOptions {
   final bool hideCompleted;
   final bool groupByTanks;
 
+  /// Converts the search options into LANraragi query parameters.
   Map<String, dynamic> toQueryParameters() {
     return {
       if (categoryId != null && categoryId!.trim().isNotEmpty) 'category': categoryId,
@@ -77,6 +82,7 @@ class ArchiveSearchOptions {
   }
 }
 
+/// Category metadata returned by the LANraragi categories endpoint.
 class LanraragiCategory {
   const LanraragiCategory({required this.id, required this.name, required this.pinned});
 
@@ -100,7 +106,7 @@ class LanraragiCategory {
   final bool pinned;
 }
 
-/// Minimal Lanraragi HTTP client.
+/// Service wrapper for all LANraragi API calls used by the app.
 class LanraragiClient {
   final Dio _dio;
   final String baseUrl;
@@ -132,6 +138,7 @@ class LanraragiClient {
     return normalized;
   }
 
+  /// Normalizes a raw or encoded LANraragi API key for Authorization headers.
   static String normalizeApiKey(String value) {
     final normalized = value.trim();
     if (normalized.isEmpty) {
@@ -194,6 +201,7 @@ class LanraragiClient {
     }
   }
 
+  /// Fetches LANraragi server metadata from `/api/info`.
   Future<Map<String, dynamic>> getServerInfo() async {
     try {
       final resp = await _get('/api/info');
@@ -261,6 +269,7 @@ class LanraragiClient {
     return null;
   }
 
+  /// Fetches a paginated archive page from `/api/search`.
   Future<ArchivePage> fetchArchivePage({
     String filter = '',
     int start = 0,
@@ -297,6 +306,8 @@ class LanraragiClient {
     }
   }
 
+  /// Fetches all LANraragi categories and returns them in sidebar-friendly
+  /// order.
   Future<List<LanraragiCategory>> getCategories() async {
     try {
       final resp = await _get('/api/categories');
@@ -318,6 +329,51 @@ class LanraragiClient {
     }
   }
 
+  /// Fetches recent in-progress archives for the On Deck sidebar.
+  Future<List<Archive>> getOnDeckArchives() async {
+    try {
+      final page = await fetchArchivePage(
+        start: 0,
+        options: const ArchiveSearchOptions(
+          sortBy: 'lastread',
+          hideCompleted: true,
+        ),
+      );
+      return page.items;
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Fetches a single random archive from the LANraragi random search API.
+  Future<Archive?> getRandomArchive() async {
+    try {
+      final resp = await _get(
+        '/api/search/random',
+        queryParameters: {'count': 1},
+      );
+      final rawItems = _unwrapList(resp);
+      if (rawItems.isNotEmpty) {
+        final first = rawItems.first;
+        if (first is Map) {
+          return Archive.fromJson(Map<String, dynamic>.from(first));
+        }
+      }
+
+      final data = resp.data;
+      if (data is Map) {
+        final candidate = data['data'] ?? data['result'] ?? data['archive'];
+        if (candidate is Map) {
+          return Archive.fromJson(Map<String, dynamic>.from(candidate));
+        }
+      }
+
+      return null;
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
   /// Search the library using LANraragi's `filter` parameter.
   Future<List<Archive>> search(String query, {int start = 0}) async {
     try {
@@ -327,6 +383,7 @@ class LanraragiClient {
     }
   }
 
+  /// Fetches full archive metadata for a single archive ID.
   Future<Archive> getArchive(String archiveId) async {
     try {
       final resp = await _get('/api/archives/$archiveId');
@@ -343,6 +400,7 @@ class LanraragiClient {
     }
   }
 
+  /// Fetches weighted tag statistics for search suggestions.
   Future<List<LanraragiTagStat>> getTagStats() async {
     try {
       final resp = await _get(
@@ -366,6 +424,7 @@ class LanraragiClient {
     }
   }
 
+  /// Updates LANraragi server-side reading progress for an archive.
   Future<void> updateArchiveProgress(String archiveId, int page) async {
     try {
       await _put('/api/archives/$archiveId/progress/$page');
@@ -374,6 +433,7 @@ class LanraragiClient {
     }
   }
 
+  /// Clears the LANraragi `isnew` flag for an archive.
   Future<void> clearArchiveIsNew(String archiveId) async {
     try {
       await _delete('/api/archives/$archiveId/isnew');

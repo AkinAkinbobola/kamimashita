@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'screens/library_screen.dart';
+import 'utils/app_strings.dart';
 import 'widgets/theme.dart';
 
+/// Entry point for the Pleasure Principle app.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -27,6 +29,7 @@ Future<void> main() async {
   runApp(const ProviderScope(child: MyApp()));
 }
 
+/// Returns whether the current runtime platform supports desktop window APIs.
 bool get _isDesktopPlatform {
   if (kIsWeb) {
     return false;
@@ -38,13 +41,14 @@ bool get _isDesktopPlatform {
   };
 }
 
+/// Root application widget.
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Pleasure Principle',
+      title: AppStrings.appTitle,
       theme: AppTheme.crimsonInk,
       home: const LibraryScreen(),
       debugShowCheckedModeBanner: false,

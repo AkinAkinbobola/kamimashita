@@ -16,7 +16,7 @@ class AppTheme {
   static const textMuted = Color(0xFFAAAAAA);
 
   static ThemeData get crimsonInk {
-    final baseText = GoogleFonts.dmSansTextTheme(ThemeData.dark().textTheme);
+    final baseText = GoogleFonts.interTextTheme(ThemeData.dark().textTheme);
 
     return ThemeData(
       useMaterial3: false,
@@ -28,7 +28,7 @@ class AppTheme {
       textTheme: baseText.copyWith(
         displayLarge: baseText.displayLarge?.copyWith(color: textPrimary),
         displayMedium: baseText.displayMedium?.copyWith(color: textPrimary),
-        titleLarge: GoogleFonts.playfairDisplay(
+        titleLarge: baseText.titleLarge?.copyWith(
           color: textPrimary,
           fontSize: 22,
           fontWeight: FontWeight.w600,
@@ -95,7 +95,7 @@ class AppTheme {
         toolbarHeight: 52,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: GoogleFonts.playfairDisplay(
+        titleTextStyle: baseText.titleLarge?.copyWith(
           color: textPrimary,
           fontSize: 20,
           fontWeight: FontWeight.w600,
