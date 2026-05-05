@@ -43,6 +43,7 @@ dependencies:
   cached_network_image: any
   window_manager: any
   shared_preferences: any
+  url_launcher: any
 
 dev_dependencies:
   flutter_test:

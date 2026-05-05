@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/lanraragi_client.dart';
 import '../providers/settings_provider.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -13,6 +14,8 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _urlController = TextEditingController();
   final _apiController = TextEditingController();
+  bool _isSaving = false;
+  String? _errorText;
 
   @override
   void initState() {
@@ -30,8 +33,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _save() async {
-    await SettingsModel.instance.update(serverUrl: _urlController.text.trim(), apiKey: _apiController.text.trim());
-    if (mounted) Navigator.of(context).pop();
+    final serverUrl = _urlController.text.trim();
+    final apiKey = _apiController.text.trim();
+    setState(() {
+      _isSaving = true;
+      _errorText = null;
+    });
+
+    try {
+      final client = LanraragiClient(serverUrl, apiKey);
+      await client.getServerInfo();
+      await SettingsModel.instance.update(serverUrl: serverUrl, apiKey: apiKey);
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } on LanraragiException catch (e) {
+      setState(() {
+        _errorText = e.message;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
   }
 
   @override
@@ -49,15 +75,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _apiController,
-              decoration: const InputDecoration(labelText: 'API Key (base64)', hintText: 'Base64-encoded API key'),
+              decoration: const InputDecoration(labelText: 'API Key', hintText: 'Raw or base64-encoded API key'),
             ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _errorText!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
                 const SizedBox(width: 12),
-                ElevatedButton(onPressed: _save, child: const Text('Save')),
+                ElevatedButton(onPressed: _isSaving ? null : _save, child: Text(_isSaving ? 'Testing...' : 'Save')),
               ],
             )
           ],

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../models/archive.dart';
@@ -9,18 +11,224 @@ class LanraragiException implements Exception {
   String toString() => 'LanraragiException: $message';
 }
 
+class LanraragiTagStat {
+  const LanraragiTagStat({required this.value, required this.weight});
+
+  factory LanraragiTagStat.fromJson(Map<String, dynamic> json) {
+    final namespace = json['namespace']?.toString().trim();
+    final text = json['text']?.toString().trim() ?? '';
+    final formatted = namespace == null || namespace.isEmpty ? text : '$namespace:$text';
+    final rawWeight = json['weight'];
+    final weight = rawWeight is int ? rawWeight : int.tryParse(rawWeight?.toString() ?? '') ?? 0;
+    return LanraragiTagStat(value: formatted, weight: weight);
+  }
+
+  final String value;
+  final int weight;
+}
+
+class ArchivePage {
+  const ArchivePage({
+    required this.items,
+    required this.start,
+    required this.nextStart,
+    required this.hasMore,
+    this.recordsTotal,
+    this.recordsFiltered,
+  });
+
+  final List<Archive> items;
+  final int? recordsTotal;
+  final int? recordsFiltered;
+  final int start;
+  final int nextStart;
+  final bool hasMore;
+}
+
+class ArchiveSearchOptions {
+  const ArchiveSearchOptions({
+    this.categoryId,
+    this.sortBy,
+    this.order,
+    this.newOnly = false,
+    this.untaggedOnly = false,
+    this.hideCompleted = false,
+    this.groupByTanks = false,
+  });
+
+  final String? categoryId;
+  final String? sortBy;
+  final String? order;
+  final bool newOnly;
+  final bool untaggedOnly;
+  final bool hideCompleted;
+  final bool groupByTanks;
+
+  Map<String, dynamic> toQueryParameters() {
+    return {
+      if (categoryId != null && categoryId!.trim().isNotEmpty) 'category': categoryId,
+      if (sortBy != null && sortBy!.trim().isNotEmpty) 'sortby': sortBy,
+      if (order != null && order!.trim().isNotEmpty) 'order': order,
+      if (newOnly) 'newonly': true,
+      if (untaggedOnly) 'untaggedonly': true,
+      if (hideCompleted) 'hidecompleted': true,
+      if (groupByTanks) 'groupby_tanks': true,
+    };
+  }
+}
+
+class LanraragiCategory {
+  const LanraragiCategory({required this.id, required this.name, required this.pinned});
+
+  factory LanraragiCategory.fromJson(Map<String, dynamic> json) {
+    final rawPinned = json['pinned'];
+    final pinned = rawPinned is int
+        ? rawPinned != 0
+        : rawPinned is bool
+            ? rawPinned
+            : rawPinned?.toString() == '1' || rawPinned?.toString().toLowerCase() == 'true';
+
+    return LanraragiCategory(
+      id: json['id']?.toString() ?? json['catid']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      pinned: pinned,
+    );
+  }
+
+  final String id;
+  final String name;
+  final bool pinned;
+}
+
 /// Minimal Lanraragi HTTP client.
 class LanraragiClient {
   final Dio _dio;
   final String baseUrl;
   final String apiKey; // expected base64-encoded string
 
-  LanraragiClient(this.baseUrl, this.apiKey)
-      : _dio = Dio(BaseOptions(baseUrl: baseUrl, connectTimeout: Duration(milliseconds: 15000), receiveTimeout: Duration(milliseconds: 15000))) {
+  LanraragiClient(String baseUrl, this.apiKey)
+      : baseUrl = _normalizeBaseUrl(baseUrl),
+        _dio = Dio(BaseOptions(baseUrl: _normalizeBaseUrl(baseUrl), connectTimeout: Duration(milliseconds: 15000), receiveTimeout: Duration(milliseconds: 15000))) {
     if (apiKey.isNotEmpty) {
-      _dio.options.headers['Authorization'] = 'Bearer $apiKey';
+      _dio.options.headers['Authorization'] = 'Bearer ${normalizeApiKey(apiKey)}';
     }
     _dio.options.headers['Accept'] = 'application/json';
+  }
+
+  Map<String, Object?> get _authHeaders => {'Authorization': 'Bearer ${normalizeApiKey(apiKey)}'};
+
+  String get _encodedApiKey => base64Encode(utf8.encode(apiKey));
+
+  bool get _canRetryWithEncodedKey => apiKey.isNotEmpty && _encodedApiKey != apiKey;
+
+  static String _normalizeBaseUrl(String value) {
+    var normalized = value.trim();
+    if (normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+    if (normalized.toLowerCase().endsWith('/api')) {
+      normalized = normalized.substring(0, normalized.length - 4);
+    }
+    return normalized;
+  }
+
+  static String normalizeApiKey(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return normalized;
+    }
+    if (_looksBase64Encoded(normalized)) {
+      return normalized;
+    }
+    return base64Encode(utf8.encode(normalized));
+  }
+
+  static bool _looksBase64Encoded(String value) {
+    try {
+      final decoded = base64Decode(value);
+      final reencoded = base64Encode(decoded);
+      return value == reencoded || value == reencoded.replaceAll('=', '');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Response<dynamic>> _get(String path, {Map<String, dynamic>? queryParameters}) async {
+    try {
+      return await _dio.get(path, queryParameters: queryParameters, options: Options(headers: _authHeaders));
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401 && _canRetryWithEncodedKey) {
+        return _dio.get(
+          path,
+          queryParameters: queryParameters,
+          options: Options(headers: {'Authorization': 'Bearer $_encodedApiKey'}),
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<Response<dynamic>> _put(String path, {dynamic data}) async {
+    try {
+      return await _dio.put(path, data: data, options: Options(headers: _authHeaders));
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401 && _canRetryWithEncodedKey) {
+        return _dio.put(
+          path,
+          data: data,
+          options: Options(headers: {'Authorization': 'Bearer $_encodedApiKey'}),
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<Response<dynamic>> _delete(String path) async {
+    try {
+      return await _dio.delete(path, options: Options(headers: _authHeaders));
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401 && _canRetryWithEncodedKey) {
+        return _dio.delete(path, options: Options(headers: {'Authorization': 'Bearer $_encodedApiKey'}));
+      }
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getServerInfo() async {
+    try {
+      final resp = await _get('/api/info');
+      final data = resp.data;
+      if (data is Map<String, dynamic>) {
+        return data;
+      }
+      if (data is Map) {
+        return Map<String, dynamic>.from(data);
+      }
+      throw LanraragiException('Unexpected response from /api/info');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  String _describeRequestFailure(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 401) {
+      return 'Authentication failed. Check the API key.';
+    }
+    if (statusCode == 404) {
+      return 'Server endpoint not found. Check the server URL.';
+    }
+    if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout || e.type == DioExceptionType.sendTimeout) {
+      return 'Connection timed out. Check the server URL and network.';
+    }
+    if (e.type == DioExceptionType.connectionError) {
+      return 'Unable to reach the server. Check the server URL and network.';
+    }
+    final serverMessage = e.response?.data;
+    if (serverMessage is Map && serverMessage['error'] != null) {
+      return serverMessage['error'].toString();
+    }
+    return e.message ?? e.toString();
   }
 
   // Helper to normalize list responses (various endpoints may return array or object)
@@ -38,93 +246,233 @@ class LanraragiClient {
     return [];
   }
 
-  /// List library entries. Attempts /api/list by default.
-  Future<List<Archive>> listLibrary({int start = -1, int page = 1}) async {
-    // Use /api/search with start=-1 to request unpaged data when supported by server.
+  int? _unwrapCount(Response resp, String key) {
+    final data = resp.data;
+    if (data is Map) {
+      final value = data[key];
+      if (value is int) {
+        return value;
+      }
+      final parsed = int.tryParse(value?.toString() ?? '');
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+    return null;
+  }
+
+  Future<ArchivePage> fetchArchivePage({
+    String filter = '',
+    int start = 0,
+    ArchiveSearchOptions options = const ArchiveSearchOptions(),
+  }) async {
     try {
-      final resp = await _dio.get('/api/search', queryParameters: {'start': start, 'page': page});
-      final items = _unwrapList(resp);
-      return items.map((e) => Archive.fromJson(Map<String, dynamic>.from(e as Map))).toList();
-    } on DioError catch (e) {
-      throw LanraragiException(e.message ?? e.toString());
+      final resp = await _get(
+        '/api/search',
+        queryParameters: {
+          'filter': filter,
+          'start': start,
+          ...options.toQueryParameters(),
+        },
+      );
+      final rawItems = _unwrapList(resp);
+      final items = rawItems
+          .whereType<Map>()
+          .map((entry) => Archive.fromJson(Map<String, dynamic>.from(entry)))
+          .toList(growable: false);
+      final recordsTotal = _unwrapCount(resp, 'recordsTotal') ?? _unwrapCount(resp, 'total');
+      final recordsFiltered = _unwrapCount(resp, 'recordsFiltered') ?? recordsTotal;
+      final nextStart = start + items.length;
+      final hasMore = recordsFiltered != null ? nextStart < recordsFiltered : items.isNotEmpty;
+      return ArchivePage(
+        items: items,
+        recordsTotal: recordsTotal,
+        recordsFiltered: recordsFiltered,
+        start: start,
+        nextStart: nextStart,
+        hasMore: hasMore,
+      );
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  Future<List<LanraragiCategory>> getCategories() async {
+    try {
+      final resp = await _get('/api/categories');
+      final rawItems = _unwrapList(resp);
+      final items = rawItems
+          .whereType<Map>()
+          .map((entry) => LanraragiCategory.fromJson(Map<String, dynamic>.from(entry)))
+          .where((category) => category.id.isNotEmpty && category.name.isNotEmpty)
+          .toList(growable: true);
+      items.sort((a, b) {
+        if (a.pinned != b.pinned) {
+          return a.pinned ? -1 : 1;
+        }
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      return List.unmodifiable(items);
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
     }
   }
 
   /// Search the library using LANraragi's `filter` parameter.
   Future<List<Archive>> search(String query, {int start = 0}) async {
     try {
-      final resp = await _dio.get('/api/search', queryParameters: {'filter': query, 'start': start});
-      final items = _unwrapList(resp);
-      return items.map((e) => Archive.fromJson(Map<String, dynamic>.from(e as Map))).toList();
-    } on DioError catch (e) {
-      throw LanraragiException(e.message ?? e.toString());
+      return (await fetchArchivePage(filter: query, start: start)).items;
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
     }
   }
 
-  /// Get page image URLs for an archive ID. LANraragi usually returns a list of URLs.
-  /// Attempts a few common endpoints; returns the first successful list.
-  Future<List<String>> getPageUrls(String archiveId) async {
-    // Use the canonical endpoint /api/archives/{id}/files as the single source.
+  Future<Archive> getArchive(String archiveId) async {
+    try {
+      final resp = await _get('/api/archives/$archiveId');
+      final data = resp.data;
+      if (data is Map<String, dynamic>) {
+        return Archive.fromJson(data);
+      }
+      if (data is Map) {
+        return Archive.fromJson(Map<String, dynamic>.from(data));
+      }
+      throw LanraragiException('Unexpected response for archive $archiveId');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  Future<List<LanraragiTagStat>> getTagStats() async {
+    try {
+      final resp = await _get(
+        '/api/database/stats',
+        queryParameters: {
+          'minweight': 2,
+          'hide_excluded_namespaces': 'true',
+        },
+      );
+      final data = resp.data;
+      if (data is List) {
+        return data
+            .whereType<Map>()
+            .map((entry) => LanraragiTagStat.fromJson(Map<String, dynamic>.from(entry)))
+            .where((entry) => entry.value.isNotEmpty)
+            .toList(growable: false);
+      }
+      throw LanraragiException('Unexpected response from /api/database/stats');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  Future<void> updateArchiveProgress(String archiveId, int page) async {
+    try {
+      await _put('/api/archives/$archiveId/progress/$page');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  Future<void> clearArchiveIsNew(String archiveId) async {
+    try {
+      await _delete('/api/archives/$archiveId/isnew');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Get page image URLs for an archive ID.
+  /// Prefer OPDS page URLs when a page count is known, since that endpoint is stable across servers.
+  Future<List<String>> getPageUrls(String archiveId, {int? expectedPageCount}) async {
+    if (expectedPageCount != null && expectedPageCount > 0) {
+      return _buildOpdsPageUrls(archiveId, expectedPageCount);
+    }
+
     final path = '/api/archives/$archiveId/files';
     try {
-      final resp = await _dio.get(path);
-      final data = resp.data;
-      if (data == null) return [];
-
-      // If the endpoint returns a list of strings
-      if (data is List) {
-        // List may contain strings or maps
-        if (data.isEmpty) return [];
-        if (data.first is String) return data.map((e) => e.toString()).toList();
-        if (data.first is Map) {
-          final List<String> urls = [];
-          for (final item in data) {
-            if (item is Map) {
-              if (item.containsKey('url')) {
-                urls.add(item['url'].toString());
-                continue;
-              }
-              if (item.containsKey('name')) {
-                final filename = item['name'].toString();
-                urls.add(_buildArchiveFileUrl(archiveId, filename));
-                continue;
-              }
-              if (item.containsKey('filename')) {
-                final filename = item['filename'].toString();
-                urls.add(_buildArchiveFileUrl(archiveId, filename));
-                continue;
-              }
-            }
-          }
-          if (urls.isNotEmpty) return urls;
-        }
+      final resp = await _get(path);
+      final urls = _extractPageUrls(archiveId, resp.data);
+      if (urls.isNotEmpty) {
+        return urls;
       }
-
-      // If the response is a map with a list inside
-      if (data is Map) {
-        for (final key in ['files', 'data', 'result', 'pages']) {
-          if (data.containsKey(key) && data[key] is List) {
-            final list = data[key] as List;
-            if (list.isEmpty) return [];
-            if (list.first is String) return list.map((e) => e.toString()).toList();
-            final List<String> urls = [];
-            for (final item in list) {
-              if (item is String) urls.add(item);
-              if (item is Map) {
-                if (item.containsKey('url')) urls.add(item['url'].toString());
-                else if (item.containsKey('name')) urls.add(_buildArchiveFileUrl(archiveId, item['name'].toString()));
-                else if (item.containsKey('filename')) urls.add(_buildArchiveFileUrl(archiveId, item['filename'].toString()));
-              }
-            }
-            if (urls.isNotEmpty) return urls;
-          }
-        }
+    } on DioException catch (e) {
+      if (expectedPageCount == null || expectedPageCount <= 0) {
+        throw LanraragiException(_describeRequestFailure(e));
       }
-    } on DioError catch (e) {
-      throw LanraragiException(e.message ?? e.toString());
+    }
+
+    if (expectedPageCount != null && expectedPageCount > 0) {
+      return _buildOpdsPageUrls(archiveId, expectedPageCount);
     }
 
     throw LanraragiException('Failed to fetch page URLs for $archiveId');
+  }
+
+  List<String> _extractPageUrls(String archiveId, dynamic data) {
+    if (data == null) {
+      return const [];
+    }
+
+    if (data is List) {
+      return _extractPageUrlsFromList(archiveId, data);
+    }
+
+    if (data is Map) {
+      for (final key in ['files', 'data', 'result', 'pages']) {
+        final value = data[key];
+        if (value is List) {
+          final urls = _extractPageUrlsFromList(archiveId, value);
+          if (urls.isNotEmpty) {
+            return urls;
+          }
+        }
+      }
+    }
+
+    return const [];
+  }
+
+  List<String> _extractPageUrlsFromList(String archiveId, List items) {
+    if (items.isEmpty) {
+      return const [];
+    }
+
+    final urls = <String>[];
+    for (final item in items) {
+      if (item is String) {
+        urls.add(_normalizePageUrl(archiveId, item));
+        continue;
+      }
+      if (item is Map) {
+        if (item.containsKey('url')) {
+          urls.add(_normalizePageUrl(archiveId, item['url'].toString()));
+        } else if (item.containsKey('name')) {
+          urls.add(_buildArchiveFileUrl(archiveId, item['name'].toString()));
+        } else if (item.containsKey('filename')) {
+          urls.add(_buildArchiveFileUrl(archiveId, item['filename'].toString()));
+        }
+      }
+    }
+    return urls;
+  }
+
+  List<String> _buildOpdsPageUrls(String archiveId, int pageCount) {
+    return List<String>.generate(
+      pageCount,
+      (index) => '$baseUrl/api/opds/$archiveId/pse?page=${index + 1}',
+    );
+  }
+
+  String _normalizePageUrl(String archiveId, String value) {
+    final normalized = value.trim();
+    if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+      return normalized;
+    }
+    if (normalized.startsWith('/')) {
+      return '$baseUrl$normalized';
+    }
+    return _buildArchiveFileUrl(archiveId, normalized);
   }
 
   String _buildArchiveFileUrl(String archiveId, String filename) {
