@@ -1,12 +1,7 @@
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/archive.dart';
-import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
-import '../utils/archive_thumbnail_url.dart';
 import 'theme.dart';
 
 class CoverCard extends StatelessWidget {
@@ -143,130 +138,36 @@ class CoverCard extends StatelessWidget {
   }
 }
 
-class ArchiveThumbnail extends ConsumerWidget {
+class ArchiveThumbnail extends StatelessWidget {
   const ArchiveThumbnail({
     super.key,
     required this.archive,
-    this.borderRadius = 6,
     this.fit = BoxFit.cover,
   });
 
   final Archive archive;
-  final double borderRadius;
   final BoxFit fit;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final settings = SettingsModel.instance;
-    final libraryState = ref.watch(libraryStateProvider);
-    final imageSources = libraryState.resolveArchiveImageSources(
-      settings.serverUrl,
-      archive,
-    );
-    final headers = settings.authHeader();
-
-    if (imageSources.isEmpty) {
-      return const ColoredBox(color: AppTheme.surfaceRaised);
-    }
-
-    return _CoverImage(
-      archiveId: archive.id,
-      sources: imageSources,
-      headers: headers,
-      fit: fit,
-    );
-  }
-}
-
-class _CoverImage extends ConsumerStatefulWidget {
-  const _CoverImage({
-    required this.archiveId,
-    required this.sources,
-    required this.headers,
-    required this.fit,
-  });
-
-  final String archiveId;
-  final List<ArchiveImageSource> sources;
-  final Map<String, String> headers;
-  final BoxFit fit;
-
-  @override
-  ConsumerState<_CoverImage> createState() => _CoverImageState();
-}
-
-class _CoverImageState extends ConsumerState<_CoverImage> {
-  int _currentIndex = 0;
-
-  @override
-  void didUpdateWidget(covariant _CoverImage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    final sourcesChanged =
-        widget.sources.length != oldWidget.sources.length ||
-        !listEquals(
-          widget.sources
-              .map((source) => source.cacheKey)
-              .toList(growable: false),
-          oldWidget.sources
-              .map((source) => source.cacheKey)
-              .toList(growable: false),
-        );
-
-    if (sourcesChanged) {
-      _currentIndex = 0;
-      return;
-    }
-
-    if (_currentIndex >= widget.sources.length) {
-      _currentIndex = widget.sources.isEmpty ? 0 : widget.sources.length - 1;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    if (_currentIndex >= widget.sources.length) {
+    final settings = SettingsModel.instance;
+    final thumbnailUrl = archive.thumbnailUrl(settings.serverUrl);
+    if (thumbnailUrl == null) {
       return const ColoredBox(color: AppTheme.surfaceRaised);
     }
 
-    final source = widget.sources[_currentIndex];
-    return CachedNetworkImage(
-      key: ValueKey(source.cacheKey),
-      imageUrl: source.url,
-      cacheKey: source.cacheKey,
-      httpHeaders: widget.headers,
-      fit: widget.fit,
+    return Image.network(
+      thumbnailUrl,
+      headers: settings.authHeader(),
+      fit: fit,
       alignment: Alignment.topLeft,
-      placeholderFadeInDuration: Duration.zero,
-      fadeInDuration: Duration.zero,
-      imageBuilder: (context, imageProvider) {
-        ref.read(libraryStateProvider).clearThumbnailMissing(widget.archiveId);
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            image: DecorationImage(
-              image: imageProvider,
-              fit: widget.fit,
-              alignment: Alignment.topLeft,
-            ),
-          ),
-        );
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded || frame != null) {
+          return child;
+        }
+        return const ColoredBox(color: AppTheme.surfaceRaised);
       },
-      placeholder: (context, url) =>
-          const ColoredBox(color: AppTheme.surfaceRaised),
-      errorWidget: (context, url, error) {
-        if (_currentIndex >= widget.sources.length - 1) {
-          ref.read(libraryStateProvider).markThumbnailMissing(widget.archiveId);
-        }
-        if (_currentIndex < widget.sources.length - 1) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) {
-              return;
-            }
-            setState(() {
-              _currentIndex += 1;
-            });
-          });
-        }
+      errorBuilder: (context, error, stackTrace) {
         return const ColoredBox(color: AppTheme.surfaceRaised);
       },
     );

@@ -34,6 +34,27 @@ class Archive {
     return currentProgress >= totalPages;
   }
 
+  String? thumbnailUrl(String serverUrl) {
+    final normalizedServerUrl = serverUrl.trim().replaceAll(
+      RegExp(r',\s*$'),
+      '',
+    );
+    final archiveId = id.trim();
+    if (normalizedServerUrl.isEmpty || archiveId.isEmpty) {
+      return null;
+    }
+
+    var normalizedBase = normalizedServerUrl;
+    if (normalizedBase.endsWith('/')) {
+      normalizedBase = normalizedBase.substring(0, normalizedBase.length - 1);
+    }
+    if (normalizedBase.toLowerCase().endsWith('/api')) {
+      normalizedBase = normalizedBase.substring(0, normalizedBase.length - 4);
+    }
+
+    return '$normalizedBase/api/archives/$archiveId/thumbnail';
+  }
+
   List<String> get parsedTags {
     final raw = tags;
     if (raw == null || raw.trim().isEmpty) {

@@ -6,8 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-
 import '../api/lanraragi_client.dart';
 import '../models/archive.dart';
 import '../models/library_sort_option.dart';
@@ -317,7 +315,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       return;
     }
 
-    final previousItems = _items;
     final currentlyLoadedItemCount = _items.length;
     setState(() {
       _isBackgroundLibraryRefreshActive = true;
@@ -337,7 +334,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         return;
       }
 
-      _libraryState.bumpMissingThumbnailRetryTimestamps(previousItems);
+      imageCache.clear();
 
       setState(() {
         _items = snapshot.items;
@@ -1023,7 +1020,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       return;
     }
 
-    final headers = settings.authHeader();
     final candidates = archives
         .where((archive) => archive.id.isNotEmpty)
         .take(6)
@@ -1035,17 +1031,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       }
 
       for (final archive in candidates) {
-        final source = _libraryState.primaryArchiveThumbnailSource(
-          settings.serverUrl,
-          archive,
-        );
-        if (source == null) {
+        final thumbnailUrl = archive.thumbnailUrl(settings.serverUrl);
+        if (thumbnailUrl == null) {
           continue;
         }
-        final provider = CachedNetworkImageProvider(
-          source.url,
-          headers: headers,
-          cacheKey: source.cacheKey,
+        final provider = NetworkImage(
+          thumbnailUrl,
+          headers: settings.authHeader(),
         );
         precacheImage(provider, context);
       }
