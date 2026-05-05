@@ -21,6 +21,7 @@ enum _PagedScrollResetAnchor { top, bottom }
 enum _PagedWheelEdge { top, bottom }
 
 const double _keyboardScrollDelta = 72;
+const double _trackpadPanSensitivity = 0.6;
 
 bool _isTrackpadScrollEvent(PointerScrollEvent event) {
   return event.kind == PointerDeviceKind.trackpad;
@@ -28,6 +29,11 @@ bool _isTrackpadScrollEvent(PointerScrollEvent event) {
 
 bool _isCtrlPressed() {
   return HardwareKeyboard.instance.isControlPressed;
+}
+
+double _normalizePanZoomDelta(BuildContext context, double rawDeltaY) {
+  final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+  return -(rawDeltaY / devicePixelRatio) * _trackpadPanSensitivity;
 }
 
 class _StaleReaderLoadException implements Exception {
@@ -529,7 +535,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   void _handleContinuousPanZoomUpdate(PointerPanZoomUpdateEvent event) {
-    final deltaY = event.panDelta.dy;
+    if (event.panDelta.dy.abs() <= event.panDelta.dx.abs()) {
+      return;
+    }
+
+    final deltaY = _normalizePanZoomDelta(context, event.panDelta.dy);
     if (deltaY == 0) {
       return;
     }
@@ -1085,6 +1095,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                   'pageview-$_reloadToken-$_rightToLeft',
                                 ),
                                 controller: pageController,
+                                physics: const NeverScrollableScrollPhysics(),
                                 reverse: _rightToLeft,
                                 itemCount: pageCount,
                                 onPageChanged: (index) {
@@ -2052,7 +2063,11 @@ class _ReaderPageState extends State<_ReaderPage> {
   }
 
   void _handlePagedPanZoomUpdate(PointerPanZoomUpdateEvent event) {
-    final deltaY = event.panDelta.dy;
+    if (event.panDelta.dy.abs() <= event.panDelta.dx.abs()) {
+      return;
+    }
+
+    final deltaY = _normalizePanZoomDelta(context, event.panDelta.dy);
     if (deltaY == 0) {
       return;
     }
