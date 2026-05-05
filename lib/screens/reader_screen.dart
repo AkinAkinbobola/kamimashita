@@ -53,11 +53,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   bool _progressSyncUnsupportedNotified = false;
   bool _pendingVisibilityUpdate = false;
   bool _didApplyStoredPreferences = false;
-  int _pagedScrollResetToken = 0;
   DateTime? _lastPagedWheelPageTurnAt;
+  double _pagedZoomScale = 1.0;
   ReaderFitMode _fitMode = ReaderFitMode.contain;
   List<String> _pageUrls = const [];
   List<GlobalKey> _pageKeys = const [];
+  List<GlobalKey<_ReaderPageState>> _pagedPageKeys = const [];
   Map<String, ImageProvider<Object>> _pageImageProviders = {};
 
   @override
@@ -244,6 +245,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _pageController = PageController(initialPage: initialPage);
     _currentPage = initialPage;
     _pageKeys = List<GlobalKey>.generate(pageUrls.length, (_) => GlobalKey());
+    _pagedPageKeys = List<GlobalKey<_ReaderPageState>>.generate(
+      pageUrls.length,
+      (_) => GlobalKey<_ReaderPageState>(),
+    );
     _lastSyncedPage = null;
     _pendingProgressPage = null;
     _pageUrls = pageUrls;
@@ -404,21 +409,27 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (clamped == _currentPage) {
       return;
     }
-    _resetPagedScrollPosition();
     if (_continuousScroll) {
       _scrollToPage(clamped, animate: true);
     } else {
+      _rememberCurrentPagedZoom();
       _pageController?.jumpToPage(clamped);
     }
   }
 
-  void _resetPagedScrollPosition() {
-    if (_continuousScroll) {
+  void _rememberCurrentPagedZoom() {
+    if (_continuousScroll ||
+        _currentPage < 0 ||
+        _currentPage >= _pagedPageKeys.length) {
       return;
     }
-    setState(() {
-      _pagedScrollResetToken += 1;
-    });
+
+    final currentState = _pagedPageKeys[_currentPage].currentState;
+    if (currentState == null) {
+      return;
+    }
+
+    _pagedZoomScale = currentState.currentScale;
   }
 
   bool _consumePagedWheelNavigationCooldown() {
@@ -459,6 +470,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final targetPage = _currentPage;
     setState(() {
       _continuousScroll = value;
+      _pagedZoomScale = 1.0;
     });
     unawaited(
       SettingsModel.instance.updateReaderPreferences(continuousScroll: value),
@@ -477,43 +489,60 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _scrollToPage(pageIndex, animate: animate);
       return;
     }
-    final controller = _pageController;
-    if (controller == null || !controller.hasClients) {
+
+    if (_pageController == null) {
       return;
     }
-    controller.jumpToPage(pageIndex);
+
+    if (animate) {
+      _pageController!.animateToPage(
+        pageIndex,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+
+    _pageController!.jumpToPage(pageIndex);
   }
 
-  void _scrollToPage(int index, {required bool animate}) {
-    if (_pageKeys.isEmpty || index < 0 || index >= _pageKeys.length) {
+  void _scrollToPage(int pageIndex, {required bool animate}) {
+    if (!_scrollController.hasClients ||
+        pageIndex < 0 ||
+        pageIndex >= _pageKeys.length) {
       return;
     }
-    final targetContext = _pageKeys[index].currentContext;
-    if (targetContext == null) {
-      if (_scrollController.hasClients) {
-        final estimatedOffset =
-            (index * (_scrollController.position.viewportDimension + 36)).clamp(
-              0.0,
-              _scrollController.position.maxScrollExtent,
-            );
-        if (animate) {
-          _scrollController.animateTo(
-            estimatedOffset,
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-          );
-        } else {
-          _scrollController.jumpTo(estimatedOffset);
-        }
-      }
+
+    final targetContext = _pageKeys[pageIndex].currentContext;
+    if (targetContext != null) {
+      Scrollable.ensureVisible(
+        targetContext,
+        duration: animate ? const Duration(milliseconds: 220) : Duration.zero,
+        curve: Curves.easeOutCubic,
+        alignment: 0.04,
+      );
       return;
     }
-    Scrollable.ensureVisible(
-      targetContext,
-      duration: animate ? const Duration(milliseconds: 220) : Duration.zero,
-      curve: Curves.easeOutCubic,
-      alignment: 0.04,
+
+    final position = _scrollController.position;
+    final viewportHeight = position.viewportDimension <= 0
+        ? MediaQuery.sizeOf(context).height
+        : position.viewportDimension;
+    final estimatedOffset = (viewportHeight * pageIndex).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
     );
+
+    if (animate) {
+      _scrollController.animateTo(
+        estimatedOffset,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+
+    _scrollController.jumpTo(estimatedOffset);
   }
 
   void _goReadingBackward(_ReaderDocument document) {
@@ -538,6 +567,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (_currentPage != index && mounted) {
       setState(() {
         _currentPage = index;
+        _pagedPageKeys = List<GlobalKey<_ReaderPageState>>.generate(
+          _pageUrls.length,
+          (_) => GlobalKey<_ReaderPageState>(),
+        );
       });
     }
     _recordOnDeckEntry(widget.archive.title, index + 1, _pageUrls.length);
@@ -767,60 +800,60 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         body: FutureBuilder<_ReaderDocument>(
           future: _documentFuture,
           builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-          if (snapshot.hasError &&
-              snapshot.error is _StaleReaderLoadException) {
-            return const SizedBox.shrink();
-          }
+            if (snapshot.hasError &&
+                snapshot.error is _StaleReaderLoadException) {
+              return const SizedBox.shrink();
+            }
 
-          if (snapshot.hasError) {
-            final message = snapshot.error.toString().replaceFirst(
-              'LanraragiException: ',
-              '',
-            );
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.chrome_reader_mode_outlined,
-                      color: Colors.white54,
-                      size: 42,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      message,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyLarge,
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: _retry,
-                      child: const Text('Retry'),
-                    ),
-                  ],
+            if (snapshot.hasError) {
+              final message = snapshot.error.toString().replaceFirst(
+                'LanraragiException: ',
+                '',
+              );
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.chrome_reader_mode_outlined,
+                        color: Colors.white54,
+                        size: 42,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        message,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _retry,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          }
+              );
+            }
 
-          final document = snapshot.data!;
-          final pageCount = document.pageUrls.length;
-      final chromeVisible = _showChrome || _showSettingsPopover;
-          final pageController =
-              _pageController ??
-              PageController(initialPage: document.initialPage);
+            final document = snapshot.data!;
+            final pageCount = document.pageUrls.length;
+            final chromeVisible = _showChrome || _showSettingsPopover;
+            final pageController =
+                _pageController ??
+                PageController(initialPage: document.initialPage);
 
-          return Focus(
-            focusNode: _readerFocusNode,
-            autofocus: true,
-            onKeyEvent: (node, event) => _handleKeyEvent(event, document),
-            child: Stack(
+            return Focus(
+              focusNode: _readerFocusNode,
+              autofocus: true,
+              onKeyEvent: (node, event) => _handleKeyEvent(event, document),
+              child: Stack(
                 children: [
                   Positioned.fill(
                     child: ColoredBox(
@@ -873,13 +906,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                               reverse: _rightToLeft,
                               itemCount: pageCount,
                               onPageChanged: (index) {
+                                _rememberCurrentPagedZoom();
                                 _setCurrentPage(index, document.archive.id);
                               },
                               itemBuilder: (context, index) {
                                 return _ReaderPage(
-                                  key: ValueKey(
-                                    'paged-$_reloadToken-$_pagedScrollResetToken-$index',
-                                  ),
+                                  key: _pagedPageKeys[index],
                                   imageProvider: _pageImageProvider(
                                     document.archive.id,
                                     index + 1,
@@ -889,16 +921,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                   pageNumber: index + 1,
                                   fitMode: _fitMode,
                                   zoomEnabled: true,
+                                  zoomScale: _pagedZoomScale,
                                   pagedNavigationEnabled: true,
-                                  resetScrollToken: _pagedScrollResetToken,
                                   onNextPageRequested: () =>
                                       _goNextPage(document, fromWheel: false),
                                   onPreviousPageRequested: () =>
-                                      _goPreviousPage(document, fromWheel: false),
+                                      _goPreviousPage(
+                                        document,
+                                        fromWheel: false,
+                                      ),
                                   onNextPageFromWheelRequested: () =>
                                       _goNextPage(document, fromWheel: true),
                                   onPreviousPageFromWheelRequested: () =>
-                                      _goPreviousPage(document, fromWheel: true),
+                                      _goPreviousPage(
+                                        document,
+                                        fromWheel: true,
+                                      ),
                                   onToggleControlsRequested: _toggleControls,
                                   onInteraction: null,
                                   onRetryRequested: _retry,
@@ -1108,6 +1146,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                           onFitModeChanged: (mode) {
                             setState(() {
                               _fitMode = mode;
+                              _pagedZoomScale = 1.0;
                             });
                             unawaited(
                               SettingsModel.instance.updateReaderPreferences(
@@ -1149,7 +1188,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                     ),
                 ],
               ),
-          );
+            );
           },
         ),
       ),
@@ -1412,7 +1451,9 @@ class _ReaderTextToggleState extends State<_ReaderTextToggle> {
             color: background,
             border: Border(
               bottom: BorderSide(
-                color: widget.selected ? widget.accentColor : Colors.transparent,
+                color: widget.selected
+                    ? widget.accentColor
+                    : Colors.transparent,
                 width: 1.5,
               ),
             ),
@@ -1437,8 +1478,8 @@ class _ReaderPage extends StatefulWidget {
     required this.pageNumber,
     required this.fitMode,
     required this.zoomEnabled,
+    this.zoomScale = 1.0,
     this.pagedNavigationEnabled = false,
-    this.resetScrollToken = 0,
     this.onNextPageRequested,
     this.onPreviousPageRequested,
     this.onNextPageFromWheelRequested,
@@ -1452,8 +1493,8 @@ class _ReaderPage extends StatefulWidget {
   final int pageNumber;
   final ReaderFitMode fitMode;
   final bool zoomEnabled;
+  final double zoomScale;
   final bool pagedNavigationEnabled;
-  final int resetScrollToken;
   final VoidCallback? onNextPageRequested;
   final VoidCallback? onPreviousPageRequested;
   final VoidCallback? onNextPageFromWheelRequested;
@@ -1483,12 +1524,18 @@ class _Scrollbarless extends StatelessWidget {
 class _ReaderPageState extends State<_ReaderPage> {
   final TransformationController _transformationController =
       TransformationController();
-  final ScrollController _pagedScrollController = ScrollController();
-  TapDownDetails? _doubleTapDetails;
   ImageStream? _imageStream;
   ImageStreamListener? _imageStreamListener;
   ImageInfo? _imageInfo;
   Object? _imageError;
+  double _lastReportedScale = 1.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _transformationController.value = _matrixForScale(widget.zoomScale);
+    _transformationController.addListener(_handleTransformationChanged);
+  }
 
   @override
   void didChangeDependencies() {
@@ -1500,12 +1547,9 @@ class _ReaderPageState extends State<_ReaderPage> {
   void didUpdateWidget(covariant _ReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.fitMode != widget.fitMode ||
-        oldWidget.zoomEnabled != widget.zoomEnabled) {
-      _resetZoom();
-    }
-    if (oldWidget.resetScrollToken != widget.resetScrollToken ||
-        oldWidget.pagedNavigationEnabled != widget.pagedNavigationEnabled) {
-      _resetPagedScrollPosition();
+        oldWidget.zoomEnabled != widget.zoomEnabled ||
+        oldWidget.zoomScale != widget.zoomScale) {
+      _transformationController.value = _matrixForScale(widget.zoomScale);
     }
     if (oldWidget.imageProvider != widget.imageProvider) {
       _resolveImage(force: true);
@@ -1517,9 +1561,22 @@ class _ReaderPageState extends State<_ReaderPage> {
     if (_imageStream != null && _imageStreamListener != null) {
       _imageStream!.removeListener(_imageStreamListener!);
     }
-    _pagedScrollController.dispose();
+    _transformationController.removeListener(_handleTransformationChanged);
     _transformationController.dispose();
     super.dispose();
+  }
+
+  double get currentScale => _currentScale.clamp(1.0, 4.0);
+
+  void _handleTransformationChanged() {
+    final scale = currentScale;
+    if ((scale - _lastReportedScale).abs() <= 0.001) {
+      return;
+    }
+    _lastReportedScale = scale;
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _resolveImage({bool force = false}) {
@@ -1561,48 +1618,50 @@ class _ReaderPageState extends State<_ReaderPage> {
     _imageStream!.addListener(_imageStreamListener!);
   }
 
-  void _resetZoom() {
-    _transformationController.value = Matrix4.identity();
+  Matrix4 _matrixForScale(double scale) {
+    final clampedScale = scale.clamp(1.0, 4.0);
+    return Matrix4.identity()..scale(clampedScale);
   }
 
-  void _resetPagedScrollPosition() {
-    if (_pagedScrollController.hasClients) {
-      _pagedScrollController.jumpTo(
-        _pagedScrollController.position.minScrollExtent,
-      );
-    }
+  void _resetZoom() {
+    _transformationController.value = Matrix4.identity();
   }
 
   double get _currentScale =>
       _transformationController.value.getMaxScaleOnAxis();
 
-  void _toggleZoom(Size viewportSize) {
-    if (!widget.zoomEnabled) {
-      return;
-    }
-    if (_currentScale > 1.01) {
+  bool get _canPanZoomedImage => _currentScale > 1.01;
+
+  bool get _useConstrainedViewer => widget.fitMode == ReaderFitMode.contain;
+
+  void _applyScaleAroundPoint(double scale, Offset focalPoint) {
+    final clampedScale = scale.clamp(1.0, 4.0);
+    if (clampedScale <= 1.0) {
       _resetZoom();
-      widget.onInteraction?.call();
       return;
     }
 
-    final tapPosition =
-        _doubleTapDetails?.localPosition ??
-        Offset(viewportSize.width / 2, viewportSize.height / 2);
-    const scale = 2.0;
-    final matrix = Matrix4.identity()
-      ..translateByDouble(
-        -tapPosition.dx * (scale - 1),
-        -tapPosition.dy * (scale - 1),
-        0,
-        1,
+    final scenePoint = _transformationController.toScene(focalPoint);
+    _transformationController.value = Matrix4.identity()
+      ..translate(
+        focalPoint.dx - scenePoint.dx * clampedScale,
+        focalPoint.dy - scenePoint.dy * clampedScale,
       )
-      ..scaleByDouble(scale, scale, 1, 1);
-    _transformationController.value = matrix;
+      ..scale(clampedScale);
+  }
+
+  void _resetZoomToDefault() {
+    if (!widget.zoomEnabled) {
+      return;
+    }
+    _resetZoom();
     widget.onInteraction?.call();
   }
 
   void _handlePagedViewportTap(TapUpDetails details, Size viewportSize) {
+    if (_canPanZoomedImage) {
+      return;
+    }
     final ratio = viewportSize.width <= 0
         ? 0.5
         : details.localPosition.dx / viewportSize.width;
@@ -1618,48 +1677,31 @@ class _ReaderPageState extends State<_ReaderPage> {
   }
 
   void _handlePagedPointerSignal(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent || !_pagedScrollController.hasClients) {
+    if (event is! PointerScrollEvent) {
       return;
     }
-    final position = _pagedScrollController.position;
     final deltaY = event.scrollDelta.dy;
     if (deltaY == 0) {
       return;
     }
 
-    final minExtent = position.minScrollExtent;
-    final maxExtent = position.maxScrollExtent;
-    final currentOffset = position.pixels;
-    const edgeTolerance = 0.5;
-    final canScrollWithinPage = maxExtent - minExtent > edgeTolerance;
+    if (HardwareKeyboard.instance.isControlPressed && widget.zoomEnabled) {
+      final zoomFactor = math.exp(-deltaY / 240);
+      _applyScaleAroundPoint(_currentScale * zoomFactor, event.localPosition);
+      widget.onInteraction?.call();
+      return;
+    }
 
-    if (!canScrollWithinPage) {
-      if (deltaY > 0) {
-        widget.onNextPageFromWheelRequested?.call();
-      } else {
-        widget.onPreviousPageFromWheelRequested?.call();
-      }
+    if (!widget.pagedNavigationEnabled) {
       return;
     }
 
     if (deltaY > 0) {
-      if (currentOffset >= maxExtent - edgeTolerance) {
-        widget.onNextPageFromWheelRequested?.call();
-        return;
-      }
-      _pagedScrollController.jumpTo(
-        (currentOffset + deltaY).clamp(minExtent, maxExtent),
-      );
+      widget.onNextPageFromWheelRequested?.call();
       return;
     }
 
-    if (currentOffset <= minExtent + edgeTolerance) {
-      widget.onPreviousPageFromWheelRequested?.call();
-      return;
-    }
-    _pagedScrollController.jumpTo(
-      (currentOffset + deltaY).clamp(minExtent, maxExtent),
-    );
+    widget.onPreviousPageFromWheelRequested?.call();
   }
 
   Size _effectiveViewportSize(BoxConstraints constraints) {
@@ -1802,6 +1844,20 @@ class _ReaderPageState extends State<_ReaderPage> {
 
     final layout = _resolveImageLayout(constraints);
     final viewport = _effectiveViewportSize(constraints);
+    final image = RawImage(
+      image: _imageInfo!.image,
+      scale: _imageInfo!.scale,
+      fit: BoxFit.fill,
+      filterQuality: FilterQuality.high,
+    );
+
+    if (!_useConstrainedViewer) {
+      return SizedBox(
+        width: layout.size.width,
+        height: layout.size.height,
+        child: image,
+      );
+    }
 
     return ConstrainedBox(
       constraints: BoxConstraints(
@@ -1813,12 +1869,7 @@ class _ReaderPageState extends State<_ReaderPage> {
         child: SizedBox(
           width: layout.size.width,
           height: layout.size.height,
-          child: RawImage(
-            image: _imageInfo!.image,
-            scale: _imageInfo!.scale,
-            fit: BoxFit.fill,
-            filterQuality: FilterQuality.high,
-          ),
+          child: image,
         ),
       ),
     );
@@ -1830,6 +1881,19 @@ class _ReaderPageState extends State<_ReaderPage> {
       builder: (context, constraints) {
         final viewportSize = _effectiveViewportSize(constraints);
         final image = _buildImage(constraints);
+        final zoomableImage = widget.zoomEnabled
+            ? InteractiveViewer(
+                transformationController: _transformationController,
+                minScale: 1,
+                maxScale: 4,
+                panEnabled: _canPanZoomedImage,
+                scaleEnabled: true,
+                constrained: _useConstrainedViewer,
+                boundaryMargin: const EdgeInsets.all(80),
+                clipBehavior: Clip.none,
+                child: image,
+              )
+            : image;
 
         if (widget.pagedNavigationEnabled) {
           return Padding(
@@ -1838,15 +1902,10 @@ class _ReaderPageState extends State<_ReaderPage> {
               onPointerSignal: _handlePagedPointerSignal,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
+                onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
                 onTapUp: (details) =>
                     _handlePagedViewportTap(details, viewportSize),
-                child: _Scrollbarless(
-                  child: SingleChildScrollView(
-                    controller: _pagedScrollController,
-                    physics: const ClampingScrollPhysics(),
-                    child: image,
-                  ),
-                ),
+                child: zoomableImage,
               ),
             ),
           );
@@ -1855,26 +1914,12 @@ class _ReaderPageState extends State<_ReaderPage> {
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
           child: GestureDetector(
-            onDoubleTapDown: widget.zoomEnabled
-                ? (details) {
-                    _doubleTapDetails = details;
-                  }
-                : null,
-            onDoubleTap: widget.zoomEnabled
-                ? () => _toggleZoom(viewportSize)
-                : null,
+            onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
             onTap: widget.onInteraction,
-            child: widget.zoomEnabled
-                ? InteractiveViewer(
-                    transformationController: _transformationController,
-                    minScale: 1,
-                    maxScale: 4,
-                    constrained: false,
-                    boundaryMargin: const EdgeInsets.all(80),
-                    clipBehavior: Clip.none,
-                    child: image,
-                  )
-                : image,
+            child: Listener(
+              onPointerSignal: _handlePagedPointerSignal,
+              child: zoomableImage,
+            ),
           ),
         );
       },

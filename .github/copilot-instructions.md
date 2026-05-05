@@ -1,4 +1,4 @@
-# Copilot instructions for pleasure_principle
+# Copilot instructions for kamimashita
 
 ## Build, test and lint commands
 

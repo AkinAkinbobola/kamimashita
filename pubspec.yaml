@@ -1,4 +1,4 @@
-name: pleasure_principle
+name: kamimashita
 description: "Minimal Flutter client for browsing and reading from LANraragi."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -41,6 +41,7 @@ dependencies:
   riverpod_annotation: any
   go_router: any
   cached_network_image: any
+  flutter_cache_manager: any
   window_manager: any
   shared_preferences: any
   flutter_secure_storage: ^9.2.4

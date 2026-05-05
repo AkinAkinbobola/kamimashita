@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -8,6 +9,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../api/lanraragi_client.dart';
 import '../models/archive.dart';
+import '../models/library_sort_option.dart';
+import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/app_strings.dart';
 import '../widgets/cover_card.dart';
@@ -23,11 +26,12 @@ class LibraryScreen extends ConsumerStatefulWidget {
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends ConsumerState<LibraryScreen> {
+class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListener {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
+  late final ProviderSubscription<Object> _libraryRefreshSubscription;
   List<Archive> _items = const [];
   List<LanraragiTagStat> _tagStats = const [];
   List<_SearchSuggestion> _suggestions = const [];
@@ -46,7 +50,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   int _reloadGeneration = 0;
   List<LanraragiCategory> _categories = const [];
   String? _selectedCategoryId;
-  String _sortBy = 'title';
+  LibrarySortOption _selectedSort = LibrarySortOption.title;
   String _sortOrder = 'asc';
   bool _newOnly = false;
   bool _untaggedOnly = false;
@@ -61,12 +65,29 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   String? _randomPickMessage;
   bool _randomPickMessageIsError = false;
   Archive? _selectedArchive;
+  List<LanraragiCategory> _selectedArchiveCategories = const [];
+  bool _isLoadingSelectedArchiveCategories = false;
+  bool _isUpdatingSelectedArchiveCategories = false;
+  String? _selectedArchiveCategoryMessage;
+  bool _selectedArchiveCategoryMessageIsError = false;
 
   bool get _isDetailsOpen => _selectedArchive != null;
 
   @override
   void initState() {
     super.initState();
+    if (_isDesktopWindowControlsEnabled) {
+      windowManager.addListener(this);
+    }
+    _libraryRefreshSubscription = ref.listenManual<Object>(
+      libraryProvider,
+      (previous, next) {
+        if (!mounted || !SettingsModel.instance.isValid) {
+          return;
+        }
+        _reloadLibrary();
+      },
+    );
     SettingsModel.instance.addListener(_onSettingsChanged);
     _controller.addListener(_onQueryChanged);
     _scrollController.addListener(_onScroll);
@@ -75,6 +96,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       _refreshOnDeck();
       _reloadLibrary();
     });
+  }
+
+
+  @override
+  void onWindowFocus() {
+    if (!mounted || !SettingsModel.instance.isValid) {
+      return;
+    }
+    ref.invalidate(libraryProvider);
   }
 
   void _onSettingsChanged() {
@@ -114,12 +144,21 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         _categoriesCacheKey = null;
         _selectedCategoryId = null;
         _selectedArchive = null;
+        _selectedArchiveCategories = const [];
+        _isLoadingSelectedArchiveCategories = false;
+        _isUpdatingSelectedArchiveCategories = false;
+        _selectedArchiveCategoryMessage = null;
+        _selectedArchiveCategoryMessageIsError = false;
       });
     }
   }
 
   @override
   void dispose() {
+    if (_isDesktopWindowControlsEnabled) {
+      windowManager.removeListener(this);
+    }
+    _libraryRefreshSubscription.close();
     SettingsModel.instance.removeListener(_onSettingsChanged);
     _controller.removeListener(_onQueryChanged);
     _scrollController.removeListener(_onScroll);
@@ -226,7 +265,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   void _openArchiveDetails(Archive archive) {
     setState(() {
       _selectedArchive = archive;
+      _selectedArchiveCategories = const [];
+      _isLoadingSelectedArchiveCategories = true;
+      _isUpdatingSelectedArchiveCategories = false;
+      _selectedArchiveCategoryMessage = null;
+      _selectedArchiveCategoryMessageIsError = false;
     });
+    _loadSelectedArchiveCategories(archive.id);
   }
 
   void _closeArchiveDetails() {
@@ -235,6 +280,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     }
     setState(() {
       _selectedArchive = null;
+      _selectedArchiveCategories = const [];
+      _isLoadingSelectedArchiveCategories = false;
+      _isUpdatingSelectedArchiveCategories = false;
+      _selectedArchiveCategoryMessage = null;
+      _selectedArchiveCategoryMessageIsError = false;
     });
   }
 
@@ -337,7 +387,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   ArchiveSearchOptions get _searchOptions {
     return ArchiveSearchOptions(
       categoryId: _selectedCategoryId,
-      sortBy: _sortBy,
+      sortBy: _selectedSort.apiValue,
       order: _sortOrder,
       newOnly: _newOnly,
       untaggedOnly: _untaggedOnly,
@@ -345,14 +395,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     );
   }
 
-  Future<void> _loadCategories() async {
+  Future<void> _loadCategories({bool force = false}) async {
     final settings = SettingsModel.instance;
     if (!settings.isValid || _isLoadingCategories) {
       return;
     }
 
     final cacheKey = '${settings.serverUrl}|${LanraragiClient.normalizeApiKey(settings.apiKey)}';
-    if (_categoriesCacheKey == cacheKey && _categories.isNotEmpty) {
+    if (!force && _categoriesCacheKey == cacheKey && _categories.isNotEmpty) {
       return;
     }
 
@@ -383,6 +433,311 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       });
     } finally {
       _isLoadingCategories = false;
+    }
+  }
+
+  void _showStatusSnackBar(String message, {required bool isError}) {
+    if (!mounted || message.trim().isEmpty) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    final mediaQuery = MediaQuery.of(context);
+    final rightMargin = 20.0 + mediaQuery.padding.right;
+    final bottomMargin = 20.0 + mediaQuery.padding.bottom;
+    final availableWidth = mediaQuery.size.width - rightMargin - 16;
+    final toastWidth = availableWidth > 280 ? 280.0 : availableWidth;
+    final computedLeftMargin = mediaQuery.size.width - toastWidth - rightMargin;
+
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        dismissDirection: DismissDirection.down,
+        duration: const Duration(seconds: 2),
+        elevation: 0,
+        margin: EdgeInsets.only(
+          left: computedLeftMargin < 16 ? 16 : computedLeftMargin,
+          right: rightMargin,
+          bottom: bottomMargin,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        content: Text(
+          message,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _reloadSelectedArchiveCategoriesIfNeeded() async {
+    final archiveId = _selectedArchive?.id;
+    if (!mounted || archiveId == null || archiveId.isEmpty) {
+      return;
+    }
+    setState(() {
+      _isLoadingSelectedArchiveCategories = true;
+    });
+    await _loadSelectedArchiveCategories(archiveId);
+  }
+
+  Future<void> _showCreateCategoryDialog() async {
+    final previousCategoryIds = _categories.map((category) => category.id).toSet();
+    final result = await showDialog<_CategoryDialogResult>(
+      context: context,
+      builder: (context) => const _CategoryDialog(
+        title: AppStrings.createCategory,
+        submitLabel: AppStrings.create,
+      ),
+    );
+    if (result == null) {
+      return;
+    }
+
+    final settings = SettingsModel.instance;
+    if (!settings.isValid) {
+      return;
+    }
+
+    try {
+      final client = LanraragiClient(settings.serverUrl, settings.apiKey);
+      await client.createCategory(
+        name: result.name,
+        search: result.search,
+        pinned: result.pinned,
+      );
+      await _loadCategories(force: true);
+      if (!mounted) {
+        return;
+      }
+      final createdCategory = _categories
+              .where((category) => !previousCategoryIds.contains(category.id))
+              .firstOrNull ??
+          _categories
+              .where(
+                (category) =>
+                    category.name == result.name &&
+                    category.search == result.search &&
+                    category.pinned == result.pinned,
+              )
+              .firstOrNull;
+      if (createdCategory != null && createdCategory.id.isNotEmpty) {
+        _updateCategory(createdCategory.id);
+      }
+      _showStatusSnackBar(AppStrings.categoryCreated, isError: false);
+    } catch (error) {
+      _showStatusSnackBar(
+        error.toString().replaceFirst('LanraragiException: ', ''),
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _showEditCategoryDialog(LanraragiCategory category) async {
+    final result = await showDialog<_CategoryDialogResult>(
+      context: context,
+      builder: (context) => _CategoryDialog(
+        title: AppStrings.editCategory,
+        submitLabel: AppStrings.save,
+        initialName: category.name,
+        initialSearch: category.search,
+        initialPinned: category.pinned,
+      ),
+    );
+    if (result == null) {
+      return;
+    }
+
+    final settings = SettingsModel.instance;
+    if (!settings.isValid) {
+      return;
+    }
+
+    try {
+      final client = LanraragiClient(settings.serverUrl, settings.apiKey);
+      await client.updateCategory(
+        categoryId: category.id,
+        name: result.name,
+        search: result.search,
+        pinned: result.pinned,
+      );
+      await _loadCategories(force: true);
+      await _reloadSelectedArchiveCategoriesIfNeeded();
+      if (!mounted) {
+        return;
+      }
+      _showStatusSnackBar(AppStrings.categoryUpdated, isError: false);
+    } catch (error) {
+      _showStatusSnackBar(
+        error.toString().replaceFirst('LanraragiException: ', ''),
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _showDeleteCategoryDialog(LanraragiCategory category) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => _DeleteCategoryDialog(categoryName: category.name),
+    );
+    if (confirmed != true) {
+      return;
+    }
+
+    final settings = SettingsModel.instance;
+    if (!settings.isValid) {
+      return;
+    }
+
+    try {
+      final client = LanraragiClient(settings.serverUrl, settings.apiKey);
+      await client.deleteCategory(category.id);
+      if (!mounted) {
+        return;
+      }
+      final wasSelected = _selectedCategoryId == category.id;
+      setState(() {
+        _categories = _categories.where((entry) => entry.id != category.id).toList(growable: false);
+        _selectedArchiveCategories = _selectedArchiveCategories
+            .where((entry) => entry.id != category.id)
+            .toList(growable: false);
+        if (wasSelected) {
+          _selectedCategoryId = null;
+        }
+      });
+      if (wasSelected) {
+        _reloadLibrary();
+      }
+      _showStatusSnackBar(AppStrings.categoryDeleted, isError: false);
+    } catch (error) {
+      _showStatusSnackBar(
+        error.toString().replaceFirst('LanraragiException: ', ''),
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _loadSelectedArchiveCategories(String archiveId) async {
+    final settings = SettingsModel.instance;
+    if (!settings.isValid || archiveId.isEmpty) {
+      return;
+    }
+
+    try {
+      final categories = await LanraragiClient(settings.serverUrl, settings.apiKey)
+          .getArchiveCategories(archiveId);
+      if (!mounted || _selectedArchive?.id != archiveId) {
+        return;
+      }
+      setState(() {
+        _selectedArchiveCategories = categories;
+        _isLoadingSelectedArchiveCategories = false;
+        _selectedArchiveCategoryMessage = null;
+        _selectedArchiveCategoryMessageIsError = false;
+      });
+    } catch (error) {
+      if (!mounted || _selectedArchive?.id != archiveId) {
+        return;
+      }
+      setState(() {
+        _selectedArchiveCategories = const [];
+        _isLoadingSelectedArchiveCategories = false;
+        _selectedArchiveCategoryMessage =
+            error.toString().replaceFirst('LanraragiException: ', '');
+        _selectedArchiveCategoryMessageIsError = true;
+      });
+    }
+  }
+
+  Future<void> _addSelectedArchiveToCategory(String categoryId) async {
+    final archive = _selectedArchive;
+    if (archive == null || categoryId.isEmpty || _isUpdatingSelectedArchiveCategories) {
+      return;
+    }
+
+    final category = _categories.where((entry) => entry.id == categoryId).firstOrNull;
+    if (category == null || category.isDynamic) {
+      return;
+    }
+
+    final settings = SettingsModel.instance;
+    if (!settings.isValid) {
+      return;
+    }
+
+    setState(() {
+      _isUpdatingSelectedArchiveCategories = true;
+      _selectedArchiveCategoryMessage = null;
+      _selectedArchiveCategoryMessageIsError = false;
+    });
+
+    try {
+      await LanraragiClient(settings.serverUrl, settings.apiKey)
+          .addArchiveToCategory(categoryId, archive.id);
+      await _loadSelectedArchiveCategories(archive.id);
+      if (mounted) {
+        ref.invalidate(libraryProvider);
+      }
+    } catch (error) {
+      if (mounted && _selectedArchive?.id == archive.id) {
+        setState(() {
+          _selectedArchiveCategoryMessage =
+              error.toString().replaceFirst('LanraragiException: ', '');
+          _selectedArchiveCategoryMessageIsError = true;
+        });
+      }
+    } finally {
+      if (mounted && _selectedArchive?.id == archive.id) {
+        setState(() {
+          _isUpdatingSelectedArchiveCategories = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _removeSelectedArchiveFromCategory(String categoryId) async {
+    final archive = _selectedArchive;
+    if (archive == null || categoryId.isEmpty || _isUpdatingSelectedArchiveCategories) {
+      return;
+    }
+
+    final settings = SettingsModel.instance;
+    if (!settings.isValid) {
+      return;
+    }
+
+    setState(() {
+      _isUpdatingSelectedArchiveCategories = true;
+      _selectedArchiveCategoryMessage = null;
+      _selectedArchiveCategoryMessageIsError = false;
+    });
+
+    try {
+      await LanraragiClient(settings.serverUrl, settings.apiKey)
+          .removeArchiveFromCategory(categoryId, archive.id);
+      await _loadSelectedArchiveCategories(archive.id);
+      if (mounted) {
+        ref.invalidate(libraryProvider);
+      }
+    } catch (error) {
+      if (mounted && _selectedArchive?.id == archive.id) {
+        setState(() {
+          _selectedArchiveCategoryMessage =
+              error.toString().replaceFirst('LanraragiException: ', '');
+          _selectedArchiveCategoryMessageIsError = true;
+        });
+      }
+    } finally {
+      if (mounted && _selectedArchive?.id == archive.id) {
+        setState(() {
+          _isUpdatingSelectedArchiveCategories = false;
+        });
+      }
     }
   }
 
@@ -467,7 +822,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   void _applyLocalOnDeckFallback() {
-    final entries = SettingsModel.instance.onDeckEntries.take(4).toList(growable: false);
+    final entries = SettingsModel.instance.onDeckEntries
+        .toList(growable: false);
     setState(() {
       _sidebarOnDeckEntries = entries;
       _isLoadingOnDeck = false;
@@ -501,7 +857,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
       final entries = archives
           .where((archive) => archive.id.isNotEmpty && archive.title.trim().isNotEmpty)
-          .take(4)
           .map(OnDeckEntry.fromArchive)
           .toList(growable: false);
 
@@ -564,9 +919,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
 
       setState(() {
         _selectedArchive = pickedArchive;
+        _selectedArchiveCategories = const [];
+        _isLoadingSelectedArchiveCategories = true;
+        _selectedArchiveCategoryMessage = null;
+        _selectedArchiveCategoryMessageIsError = false;
         _randomPickMessage = null;
         _randomPickMessageIsError = false;
       });
+      _loadSelectedArchiveCategories(pickedArchive.id);
     } catch (error) {
       if (!mounted) {
         return;
@@ -767,24 +1127,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       normalized = normalized.substring(0, normalized.length - 1).trimRight();
     }
 
-    if (!_isWrappedInQuotes(normalized)) {
-      final colonIndex = normalized.indexOf(':');
-      if (colonIndex > 0 && colonIndex < normalized.length - 1) {
-        final namespace = normalized.substring(0, colonIndex + 1);
-        final value = normalized.substring(colonIndex + 1).trim();
-        if (value.contains(RegExp(r'\s')) && !_isWrappedInQuotes(value)) {
-          normalized = '$namespace"$value"';
-        }
-      } else if (normalized.contains(RegExp(r'\s'))) {
-        normalized = '"$normalized"';
-      }
-    }
-
     return hasExactSuffix ? normalized + r'$' : normalized + r'$';
-  }
-
-  bool _isWrappedInQuotes(String value) {
-    return value.length >= 2 && value.startsWith('"') && value.endsWith('"');
   }
 
   TextRange _activeTokenRange(String text) {
@@ -825,11 +1168,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   void _updateSortBy(String? value) {
-    if (value == null || value == _sortBy) {
+    if (value == null) {
+      return;
+    }
+    final nextSort = LibrarySortOption.fromId(value);
+    if (nextSort.id == _selectedSort.id) {
       return;
     }
     setState(() {
-      _sortBy = value;
+      _selectedSort = nextSort;
     });
     _reloadLibrary();
   }
@@ -852,6 +1199,78 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     _reloadLibrary();
   }
 
+  List<LanraragiCategory> get _staticCategories =>
+      _categories.where((category) => category.isStatic).toList(growable: false);
+
+  List<LanraragiCategory> get _dynamicCategories =>
+      _categories.where((category) => category.isDynamic).toList(growable: false);
+
+  int get _activeFilterCount {
+    var count = 0;
+    if (_newOnly) {
+      count += 1;
+    }
+    if (_untaggedOnly) {
+      count += 1;
+    }
+    if (_hideCompleted) {
+      count += 1;
+    }
+    if (_dynamicCategories.any((category) => category.id == _selectedCategoryId)) {
+      count += 1;
+    }
+    return count;
+  }
+
+  void _toggleCategorySelection(String categoryId) {
+    _updateCategory(_selectedCategoryId == categoryId ? null : categoryId);
+  }
+
+  Future<void> _showCategoryActionsMenu(
+    LanraragiCategory category,
+    Offset globalPosition,
+  ) async {
+    final overlay = Overlay.of(context).context.findRenderObject();
+    final overlayBox = overlay is RenderBox ? overlay : null;
+    if (overlayBox == null) {
+      return;
+    }
+
+    final action = await showMenu<_CategoryContextAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        globalPosition.dx,
+        globalPosition.dy,
+        overlayBox.size.width - globalPosition.dx,
+        overlayBox.size.height - globalPosition.dy,
+      ),
+      color: const Color(0xFF1A1A1A),
+      elevation: 0,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      items: const [
+        PopupMenuItem<_CategoryContextAction>(
+          value: _CategoryContextAction.edit,
+          child: Text(AppStrings.edit),
+        ),
+        PopupMenuItem<_CategoryContextAction>(
+          value: _CategoryContextAction.delete,
+          child: Text(AppStrings.delete),
+        ),
+      ],
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    switch (action) {
+      case _CategoryContextAction.edit:
+        await _showEditCategoryDialog(category);
+      case _CategoryContextAction.delete:
+        await _showDeleteCategoryDialog(category);
+    }
+  }
+
   void _toggleFlagFilter({
     required bool currentValue,
     required void Function(bool nextValue) apply,
@@ -863,44 +1282,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       onEnabled?.call();
     }
     _reloadLibrary();
-  }
-
-  String _titleCase(String value) {
-    if (value.isEmpty) {
-      return value;
-    }
-    return value[0].toUpperCase() + value.substring(1);
-  }
-
-  Widget _buildFilterToggle({required String label, required bool active, required VoidCallback onTap}) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: onTap,
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: active ? AppTheme.crimson : AppTheme.textSecondary,
-                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _sortLabel(String value) {
-    return switch (value) {
-      'title' => AppStrings.sortByTitle,
-      'lastread' => AppStrings.sortByLastRead,
-      _ => _titleCase(value),
-    };
   }
 
   List<_GroupedTagNamespace> _groupArchiveTags(Archive archive) {
@@ -934,7 +1315,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   Widget _buildToolbar() {
-    final namespaces = <String>{};
+    final namespaceOptionsById = <String, LibrarySortOption>{
+      for (final option in LibrarySortOption.defaultNamespaceSortOptions) option.id: option,
+    };
     for (final stat in _tagStats) {
       final separatorIndex = stat.value.indexOf(':');
       if (separatorIndex <= 0) {
@@ -942,14 +1325,35 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       }
       final namespace = stat.value.substring(0, separatorIndex).trim();
       if (namespace.isNotEmpty) {
-        namespaces.add(namespace);
+        final option = LibrarySortOption.fromNamespace(namespace);
+        namespaceOptionsById[option.id] = option;
       }
     }
 
-    final namespaceOptions = namespaces.toList()..sort();
+    final namespaceOptions = namespaceOptionsById.values.toList()
+      ..sort((a, b) {
+        final aIndex = LibrarySortOption.defaultNamespaceSortOrder[a.id];
+        final bIndex = LibrarySortOption.defaultNamespaceSortOrder[b.id];
+
+        if (aIndex != null || bIndex != null) {
+          if (aIndex == null) {
+            return 1;
+          }
+          if (bIndex == null) {
+            return -1;
+          }
+          return aIndex.compareTo(bIndex);
+        }
+
+        return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+      });
 
     final compactFieldStyle = Theme.of(context).textTheme.bodyMedium;
-    final sortOptions = ['title', 'lastread', ...namespaceOptions];
+    final sortOptions = [
+      LibrarySortOption.title,
+      ...namespaceOptions,
+      LibrarySortOption.lastRead,
+    ];
 
     return SizedBox(
       height: 36,
@@ -960,12 +1364,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           children: [
             _ToolbarMenuButton<String>(
               width: 150,
-              label: _sortLabel(_sortBy),
+              label: _selectedSort.label,
               items: sortOptions
                   .map(
-                    (value) => _ToolbarMenuOption<String>(
-                      value: value,
-                      label: _sortLabel(value),
+                    (option) => _ToolbarMenuOption<String>(
+                      value: option.id,
+                      label: option.label,
                     ),
                   )
                   .toList(growable: false),
@@ -987,62 +1391,50 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                 style: compactFieldStyle,
               ),
             ),
-            if (_categories.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              _ToolbarMenuButton<String?>(
-                width: 190,
-                label: _categories
-                        .where((category) => category.id == _selectedCategoryId)
-                        .map((category) => category.name)
-                        .cast<String?>()
-                        .firstOrNull ??
-                    AppStrings.allCategories,
-                items: [
-                  const _ToolbarMenuOption<String?>(value: null, label: AppStrings.allCategories),
-                  ..._categories.map(
-                    (category) => _ToolbarMenuOption<String?>(
-                      value: category.id,
-                      label: category.name,
-                    ),
-                  ),
-                ],
-                onSelected: _updateCategory,
-              ),
-            ],
             const SizedBox(width: 8),
-            ...[
-              (
-                AppStrings.filterNewOnly,
-                _newOnly,
-                () => _toggleFlagFilter(
-                  currentValue: _newOnly,
-                  apply: (value) => setState(() => _newOnly = value),
-                  onEnabled: () => setState(() => _untaggedOnly = false),
-                ),
+            _CategoryFilterMenu(
+              width: 190,
+              label: _staticCategories
+                      .where((category) => category.id == _selectedCategoryId)
+                      .map((category) => category.name)
+                      .cast<String?>()
+                      .firstOrNull ??
+                  AppStrings.allCategories,
+              categories: _staticCategories,
+              onSelected: _updateCategory,
+              onCreateCategory: _showCreateCategoryDialog,
+              onEditCategory: _showEditCategoryDialog,
+              onDeleteCategory: _showDeleteCategoryDialog,
+            ),
+            const SizedBox(width: 8),
+            _FiltersMenuButton(
+              width: 260,
+              activeCount: _activeFilterCount,
+              newOnly: _newOnly,
+              untaggedOnly: _untaggedOnly,
+              hideCompleted: _hideCompleted,
+              dynamicCategories: _dynamicCategories,
+              selectedDynamicCategoryId: _dynamicCategories
+                  .where((category) => category.id == _selectedCategoryId)
+                  .map((category) => category.id)
+                  .cast<String?>()
+                  .firstOrNull,
+              onToggleNewOnly: () => _toggleFlagFilter(
+                currentValue: _newOnly,
+                apply: (value) => setState(() => _newOnly = value),
+                onEnabled: () => setState(() => _untaggedOnly = false),
               ),
-              (
-                AppStrings.filterUntagged,
-                _untaggedOnly,
-                () => _toggleFlagFilter(
-                  currentValue: _untaggedOnly,
-                  apply: (value) => setState(() => _untaggedOnly = value),
-                  onEnabled: () => setState(() => _newOnly = false),
-                ),
+              onToggleUntagged: () => _toggleFlagFilter(
+                currentValue: _untaggedOnly,
+                apply: (value) => setState(() => _untaggedOnly = value),
+                onEnabled: () => setState(() => _newOnly = false),
               ),
-              (
-                AppStrings.filterHideCompleted,
-                _hideCompleted,
-                () => _toggleFlagFilter(
-                  currentValue: _hideCompleted,
-                  apply: (value) => setState(() => _hideCompleted = value),
-                ),
+              onToggleHideCompleted: () => _toggleFlagFilter(
+                currentValue: _hideCompleted,
+                apply: (value) => setState(() => _hideCompleted = value),
               ),
-            ].map(
-              (entry) => _buildFilterToggle(
-                label: entry.$1,
-                active: entry.$2,
-                onTap: entry.$3,
-              ),
+              onToggleDynamicCategory: _toggleCategorySelection,
+              onOpenCategoryActions: _showCategoryActionsMenu,
             ),
           ],
         ),
@@ -1193,7 +1585,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(52),
         child: _TopBar(
-          onRefresh: _loadLibrary,
+          onRefresh: () async {
+            await DefaultCacheManager().emptyCache();
+            ref.invalidate(libraryProvider);
+          },
           onOpenSidebarMenu: () => _scaffoldKey.currentState?.openDrawer(),
         ),
       ),
@@ -1274,10 +1669,20 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                           right: _isDetailsOpen ? 0 : -drawerWidth,
                           child: _ArchiveDetailsDrawer(
                             archive: _selectedArchive,
+                            categories: _selectedArchiveCategories,
+                            availableStaticCategories: _categories
+                                .where((category) => category.isStatic)
+                                .toList(growable: false),
+                            isLoadingCategories: _isLoadingSelectedArchiveCategories,
+                            isUpdatingCategories: _isUpdatingSelectedArchiveCategories,
+                            categoryMessage: _selectedArchiveCategoryMessage,
+                            categoryMessageIsError: _selectedArchiveCategoryMessageIsError,
                             groupedTags: _selectedArchive == null ? const [] : _groupArchiveTags(_selectedArchive!),
                             onClose: _closeArchiveDetails,
                             onRead: _readSelectedArchive,
                             onTagSelected: _applyTagFilter,
+                            onAddToCategory: _addSelectedArchiveToCategory,
+                            onRemoveFromCategory: _removeSelectedArchiveFromCategory,
                           ),
                         ),
                       ],
@@ -1577,16 +1982,114 @@ class _ToolbarMenuButton<T> extends StatelessWidget {
     required this.label,
     required this.items,
     required this.onSelected,
+    this.footerLabel,
+    this.footerOnPressed,
+    this.itemHoverColor,
   });
 
   final double width;
   final String label;
   final List<_ToolbarMenuOption<T>> items;
   final ValueChanged<T?> onSelected;
+  final String? footerLabel;
+  final VoidCallback? footerOnPressed;
+  final Color? itemHoverColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final resolvedItemHoverColor = itemHoverColor ?? AppTheme.crimson.withValues(alpha: 0.14);
+    final itemButtonStyle = ButtonStyle(
+      padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+      minimumSize: WidgetStatePropertyAll(Size(width, 36)),
+      maximumSize: WidgetStatePropertyAll(Size(width, 36)),
+      shape: const WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      ),
+      backgroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
+          return resolvedItemHoverColor;
+        }
+        return const Color(0xFF1E1E1E);
+      }),
+      foregroundColor: WidgetStateProperty.resolveWith((states) {
+        if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
+          return AppTheme.textPrimary;
+        }
+        return AppTheme.textSecondary;
+      }),
+      overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+      mouseCursor: const WidgetStatePropertyAll(SystemMouseCursors.click),
+    );
+    final menuChildren = <Widget>[
+      ...items.map(
+        (item) => MenuItemButton(
+          onPressed: () => onSelected(item.value),
+          closeOnActivate: true,
+          style: itemButtonStyle,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              width: double.infinity,
+              height: double.infinity,
+              decoration: const BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: Colors.transparent, width: 2),
+                ),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              alignment: Alignment.centerLeft,
+              child: Text(
+                item.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ];
+
+    if (footerLabel != null && footerOnPressed != null) {
+      if (menuChildren.isNotEmpty) {
+        menuChildren.add(
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: Divider(
+              height: 1,
+              thickness: 0.5,
+              color: AppTheme.border,
+            ),
+          ),
+        );
+      }
+      menuChildren.add(
+        MenuItemButton(
+          onPressed: footerOnPressed,
+          closeOnActivate: true,
+          style: itemButtonStyle,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              width: double.infinity,
+              height: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              alignment: Alignment.centerLeft,
+              child: Text(
+                footerLabel!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppTheme.crimson,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return SizedBox(
       width: width,
@@ -1604,56 +2107,7 @@ class _ToolbarMenuButton<T> extends StatelessWidget {
             ),
           ),
         ),
-        menuChildren: items
-            .map(
-              (item) => MenuItemButton(
-                onPressed: () => onSelected(item.value),
-                closeOnActivate: true,
-                style: ButtonStyle(
-                  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-                  minimumSize: WidgetStatePropertyAll(Size(width, 36)),
-                  maximumSize: WidgetStatePropertyAll(Size(width, 36)),
-                  shape: const WidgetStatePropertyAll(
-                    RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                  ),
-                  backgroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
-                      return AppTheme.crimson.withValues(alpha: 0.14);
-                    }
-                    return const Color(0xFF1E1E1E);
-                  }),
-                  foregroundColor: WidgetStateProperty.resolveWith((states) {
-                    if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
-                      return AppTheme.textPrimary;
-                    }
-                    return AppTheme.textSecondary;
-                  }),
-                  overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-                  mouseCursor: const WidgetStatePropertyAll(SystemMouseCursors.click),
-                ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Container(
-                    width: double.infinity,
-                    height: double.infinity,
-                    decoration: const BoxDecoration(
-                      border: Border(
-                        left: BorderSide(color: Colors.transparent, width: 2),
-                      ),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      item.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  ),
-                ),
-              ),
-            )
-            .toList(growable: false),
+        menuChildren: menuChildren,
         builder: (context, controller, child) {
           return MouseRegion(
             cursor: SystemMouseCursors.click,
@@ -1697,6 +2151,531 @@ class _ToolbarMenuButton<T> extends StatelessWidget {
   }
 }
 
+enum _CategoryContextAction { edit, delete }
+
+class _CategoryFilterMenu extends StatelessWidget {
+  const _CategoryFilterMenu({
+    required this.width,
+    required this.label,
+    required this.categories,
+    required this.onSelected,
+    required this.onCreateCategory,
+    required this.onEditCategory,
+    required this.onDeleteCategory,
+  });
+
+  final double width;
+  final String label;
+  final List<LanraragiCategory> categories;
+  final ValueChanged<String?> onSelected;
+  final VoidCallback onCreateCategory;
+  final ValueChanged<LanraragiCategory> onEditCategory;
+  final ValueChanged<LanraragiCategory> onDeleteCategory;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final controller = MenuController();
+
+    return SizedBox(
+      width: width,
+      child: MenuAnchor(
+        controller: controller,
+        style: const MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(Color(0xFF1E1E1E)),
+          surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: WidgetStatePropertyAll(Colors.black54),
+          elevation: WidgetStatePropertyAll(10),
+          padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.zero,
+              side: BorderSide(color: AppTheme.border, width: 0.5),
+            ),
+          ),
+        ),
+        menuChildren: [
+          _CategoryFilterMenuItem(
+            width: width,
+            label: AppStrings.allCategories,
+            onSelect: () {
+              controller.close();
+              onSelected(null);
+            },
+          ),
+          ...categories.map(
+            (category) => _CategoryFilterMenuItem(
+              width: width,
+              label: category.name,
+              onSelect: () {
+                controller.close();
+                onSelected(category.id);
+              },
+              onActionSelected: (action) {
+                controller.close();
+                switch (action) {
+                  case _CategoryContextAction.edit:
+                    onEditCategory(category);
+                  case _CategoryContextAction.delete:
+                    onDeleteCategory(category);
+                }
+              },
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: Divider(height: 1, thickness: 0.5, color: AppTheme.border),
+          ),
+          _CategoryFilterMenuItem(
+            width: width,
+            label: AppStrings.newCategoryMenuItem,
+            highlightColor: AppTheme.crimson.withValues(alpha: 0.14),
+            textColor: AppTheme.crimson,
+            onSelect: () {
+              controller.close();
+              onCreateCategory();
+            },
+          ),
+        ],
+        builder: (context, controller, child) {
+          return MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () {
+                if (controller.isOpen) {
+                  controller.close();
+                } else {
+                  controller.open();
+                }
+              },
+              behavior: HitTestBehavior.opaque,
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.fromBorderSide(BorderSide(color: AppTheme.border, width: 0.5)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textPrimary),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.expand_more, size: 16, color: AppTheme.textSecondary),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FiltersMenuButton extends StatelessWidget {
+  const _FiltersMenuButton({
+    required this.width,
+    required this.activeCount,
+    required this.newOnly,
+    required this.untaggedOnly,
+    required this.hideCompleted,
+    required this.dynamicCategories,
+    required this.selectedDynamicCategoryId,
+    required this.onToggleNewOnly,
+    required this.onToggleUntagged,
+    required this.onToggleHideCompleted,
+    required this.onToggleDynamicCategory,
+    required this.onOpenCategoryActions,
+  });
+
+  final double width;
+  final int activeCount;
+  final bool newOnly;
+  final bool untaggedOnly;
+  final bool hideCompleted;
+  final List<LanraragiCategory> dynamicCategories;
+  final String? selectedDynamicCategoryId;
+  final VoidCallback onToggleNewOnly;
+  final VoidCallback onToggleUntagged;
+  final VoidCallback onToggleHideCompleted;
+  final ValueChanged<String> onToggleDynamicCategory;
+  final Future<void> Function(LanraragiCategory, Offset) onOpenCategoryActions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: width,
+      child: MenuAnchor(
+        style: const MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(Color(0xFF1E1E1E)),
+          surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: WidgetStatePropertyAll(Colors.black54),
+          elevation: WidgetStatePropertyAll(10),
+          padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 6)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.zero,
+              side: BorderSide(color: AppTheme.border, width: 0.5),
+            ),
+          ),
+        ),
+        menuChildren: [
+          _FilterCheckboxMenuRow(
+            label: AppStrings.filterNewOnly,
+            value: newOnly,
+            onChanged: (_) => onToggleNewOnly(),
+          ),
+          _FilterCheckboxMenuRow(
+            label: AppStrings.filterUntagged,
+            value: untaggedOnly,
+            onChanged: (_) => onToggleUntagged(),
+          ),
+          _FilterCheckboxMenuRow(
+            label: AppStrings.filterHideCompleted,
+            value: hideCompleted,
+            onChanged: (_) => onToggleHideCompleted(),
+          ),
+          if (dynamicCategories.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+              child: Divider(height: 1, thickness: 0.5, color: AppTheme.border),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  AppStrings.dynamicCategories.toUpperCase(),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: AppTheme.textMuted,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+            ),
+            ...dynamicCategories.map(
+              (category) => _DynamicCategoryMenuRow(
+                category: category,
+                selected: selectedDynamicCategoryId == category.id,
+                onChanged: (_) => onToggleDynamicCategory(category.id),
+                onOpenActions: onOpenCategoryActions,
+              ),
+            ),
+          ],
+        ],
+        builder: (context, controller, child) {
+          return MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () {
+                if (controller.isOpen) {
+                  controller.close();
+                } else {
+                  controller.open();
+                }
+              },
+              behavior: HitTestBehavior.opaque,
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.fromBorderSide(BorderSide(color: AppTheme.border, width: 0.5)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: RichText(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          text: TextSpan(
+                            style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textPrimary),
+                            children: [
+                              const TextSpan(text: AppStrings.filters),
+                              if (activeCount > 0)
+                                TextSpan(
+                                  text: ' ($activeCount)',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: const Color(0xFF49D7E8),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.expand_more, size: 16, color: AppTheme.textSecondary),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FilterCheckboxMenuRow extends StatelessWidget {
+  const _FilterCheckboxMenuRow({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final ValueChanged<bool?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final foregroundColor = value ? const Color(0xFF49D7E8) : AppTheme.textMuted;
+
+    return InkWell(
+      onTap: () => onChanged(!value),
+      mouseCursor: SystemMouseCursors.click,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: foregroundColor,
+                  fontWeight: value ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ),
+            if (value)
+              const Icon(
+                Icons.done,
+                size: 14,
+                color: Color(0xFF49D7E8),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DynamicCategoryMenuRow extends StatelessWidget {
+  const _DynamicCategoryMenuRow({
+    required this.category,
+    required this.selected,
+    required this.onChanged,
+    required this.onOpenActions,
+  });
+
+  final LanraragiCategory category;
+  final bool selected;
+  final ValueChanged<bool?> onChanged;
+  final Future<void> Function(LanraragiCategory, Offset) onOpenActions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final foregroundColor = selected ? const Color(0xFF49D7E8) : AppTheme.textMuted;
+
+    return Builder(
+      builder: (context) {
+        return InkWell(
+          onTap: () => onChanged(!selected),
+          onSecondaryTapDown: (details) => onOpenActions(category, details.globalPosition),
+          mouseCursor: SystemMouseCursors.click,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.bolt,
+                  size: 12,
+                  color: foregroundColor,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    category.name,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: foregroundColor,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (selected)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 6),
+                    child: Icon(
+                      Icons.done,
+                      size: 14,
+                      color: Color(0xFF49D7E8),
+                    ),
+                  ),
+                IconButton(
+                  onPressed: () async {
+                    final box = context.findRenderObject();
+                    final renderBox = box is RenderBox ? box : null;
+                    if (renderBox == null) {
+                      return;
+                    }
+                    final topRight = renderBox.localToGlobal(Offset(renderBox.size.width, 0));
+                    await onOpenActions(category, topRight);
+                  },
+                  tooltip: 'Category actions',
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  splashRadius: 16,
+                  icon: const Icon(Icons.more_horiz, size: 16, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CategoryFilterMenuItem extends StatefulWidget {
+  const _CategoryFilterMenuItem({
+    required this.width,
+    required this.label,
+    required this.onSelect,
+    this.onActionSelected,
+    this.highlightColor,
+    this.textColor,
+  });
+
+  final double width;
+  final String label;
+  final VoidCallback onSelect;
+  final ValueChanged<_CategoryContextAction>? onActionSelected;
+  final Color? highlightColor;
+  final Color? textColor;
+
+  @override
+  State<_CategoryFilterMenuItem> createState() => _CategoryFilterMenuItemState();
+}
+
+class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
+  bool _hovered = false;
+
+  Future<void> _showContextMenu(Offset position) async {
+    final overlay = Overlay.of(context).context.findRenderObject();
+    final overlayBox = overlay is RenderBox ? overlay : null;
+    if (overlayBox == null || widget.onActionSelected == null) {
+      return;
+    }
+
+    final action = await showMenu<_CategoryContextAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        overlayBox.size.width - position.dx,
+        overlayBox.size.height - position.dy,
+      ),
+      color: const Color(0xFF1A1A1A),
+      elevation: 0,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      items: const [
+        PopupMenuItem<_CategoryContextAction>(
+          value: _CategoryContextAction.edit,
+          child: Text(AppStrings.edit),
+        ),
+        PopupMenuItem<_CategoryContextAction>(
+          value: _CategoryContextAction.delete,
+          child: Text(AppStrings.delete),
+        ),
+      ],
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+    widget.onActionSelected!(action);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final highlightColor = widget.highlightColor ?? AppTheme.crimson.withValues(alpha: 0.14);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: SizedBox(
+        width: widget.width,
+        height: 36,
+        child: Material(
+          color: _hovered ? highlightColor : const Color(0xFF1E1E1E),
+          child: InkWell(
+            onTap: widget.onSelect,
+            onSecondaryTapDown: widget.onActionSelected == null
+                ? null
+                : (details) => _showContextMenu(details.globalPosition),
+            hoverColor: Colors.transparent,
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 12, right: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: widget.textColor ?? AppTheme.textSecondary,
+                      ),
+                    ),
+                  ),
+                  if (widget.onActionSelected != null)
+                    IconButton(
+                      onPressed: () async {
+                        final box = context.findRenderObject();
+                        final renderBox = box is RenderBox ? box : null;
+                        if (renderBox == null) {
+                          return;
+                        }
+                        final topRight = renderBox.localToGlobal(Offset(renderBox.size.width, 0));
+                        await _showContextMenu(topRight);
+                      },
+                      tooltip: 'Category actions',
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      splashRadius: 16,
+                      icon: const Icon(Icons.more_horiz, size: 16, color: AppTheme.textSecondary),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _GroupedTagNamespace {
   const _GroupedTagNamespace({required this.namespace, required this.tags});
 
@@ -1707,17 +2686,33 @@ class _GroupedTagNamespace {
 class _ArchiveDetailsDrawer extends StatelessWidget {
   const _ArchiveDetailsDrawer({
     required this.archive,
+    required this.categories,
+    required this.availableStaticCategories,
+    required this.isLoadingCategories,
+    required this.isUpdatingCategories,
+    required this.categoryMessage,
+    required this.categoryMessageIsError,
     required this.groupedTags,
     required this.onClose,
     required this.onRead,
     required this.onTagSelected,
+    required this.onAddToCategory,
+    required this.onRemoveFromCategory,
   });
 
   final Archive? archive;
+  final List<LanraragiCategory> categories;
+  final List<LanraragiCategory> availableStaticCategories;
+  final bool isLoadingCategories;
+  final bool isUpdatingCategories;
+  final String? categoryMessage;
+  final bool categoryMessageIsError;
   final List<_GroupedTagNamespace> groupedTags;
   final VoidCallback onClose;
   final VoidCallback onRead;
   final ValueChanged<String> onTagSelected;
+  final ValueChanged<String> onAddToCategory;
+  final ValueChanged<String> onRemoveFromCategory;
 
   String _tagLabel(String namespace, String rawTag) {
     final separatorIndex = rawTag.indexOf(':');
@@ -1765,6 +2760,13 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
         letterSpacing: 0.18,
       ),
     );
+  }
+
+  List<LanraragiCategory> get _addableStaticCategories {
+    final existingIds = categories.map((category) => category.id).toSet();
+    return availableStaticCategories
+        .where((category) => !existingIds.contains(category.id))
+        .toList(growable: false);
   }
 
   @override
@@ -1821,6 +2823,90 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
                               archive!.pageCount == null ? 'Unknown page count' : '${archive!.pageCount} pages',
                               style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textSecondary),
                             ),
+                            const SizedBox(height: 16),
+                            _buildSectionLabel(context, AppStrings.categoriesTitle),
+                            const SizedBox(height: 6),
+                            if (isLoadingCategories)
+                              const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            else ...[
+                              if (categories.isEmpty)
+                                Text(
+                                  'Not in any categories.',
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textSecondary),
+                                )
+                              else
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: categories
+                                      .map(
+                                        (category) => InputChip(
+                                          label: Text(category.name),
+                                          onDeleted: isUpdatingCategories
+                                              ? null
+                                              : () => onRemoveFromCategory(category.id),
+                                          deleteIconColor: AppTheme.textSecondary,
+                                          backgroundColor: const Color(0xFF2A2A2A),
+                                          labelStyle: const TextStyle(
+                                            fontSize: 11,
+                                            color: AppTheme.textPrimary,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          side: BorderSide.none,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(999),
+                                          ),
+                                        ),
+                                      )
+                                      .toList(growable: false),
+                                ),
+                              const SizedBox(height: 8),
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF202020),
+                                  border: Border.all(color: AppTheme.border, width: 0.5),
+                                ),
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    return _ToolbarMenuButton<String>(
+                                      width: constraints.maxWidth,
+                                      label: _addableStaticCategories.isEmpty
+                                          ? AppStrings.noStaticCategories
+                                          : AppStrings.addToCategory,
+                                      items: _addableStaticCategories
+                                          .map(
+                                            (category) => _ToolbarMenuOption<String>(
+                                              value: category.id,
+                                              label: category.name,
+                                            ),
+                                          )
+                                          .toList(growable: false),
+                                      itemHoverColor: const Color(0xFF49D7E8),
+                                      onSelected: isUpdatingCategories || _addableStaticCategories.isEmpty
+                                          ? (_) {}
+                                          : (categoryId) {
+                                              if (categoryId != null) {
+                                                onAddToCategory(categoryId);
+                                              }
+                                            },
+                                    );
+                                  },
+                                ),
+                              ),
+                              if (categoryMessage != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  categoryMessage!,
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: categoryMessageIsError ? AppTheme.crimson : AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ],
                             if (archive!.sourceUrl != null && archive!.sourceUrl!.trim().isNotEmpty) ...[
                               const SizedBox(height: 16),
                               _buildSectionLabel(context, 'Source'),
@@ -2089,55 +3175,57 @@ class _LibrarySidebar extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 22),
-          Text(
-            AppStrings.onDeckTitle,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: AppTheme.textMuted,
-              letterSpacing: 1.1,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 12),
           Expanded(
-            child: isLoadingOnDeck
-                ? const Align(
-                    alignment: Alignment.topLeft,
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  )
-                : onDeckEntries.isEmpty
-                ? Align(
-                    alignment: Alignment.topLeft,
-                    child: Text(
-                      onDeckMessage ?? AppStrings.recentInProgressPlaceholder,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: onDeckMessageIsError ? AppTheme.crimson : AppTheme.textMuted,
-                      ),
-                    ),
-                  )
-                : _Scrollbarless(
-                    child: ListView.separated(
-                      itemCount: onDeckEntries.length,
-                      separatorBuilder: (context, index) => const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Divider(
-                          height: 1,
-                          thickness: 0.5,
-                          color: AppTheme.border,
-                        ),
-                      ),
-                      itemBuilder: (context, index) {
-                        final entry = onDeckEntries[index];
-                        return _OnDeckCoverTile(
-                          entry: entry,
-                          onTap: () => onOpenOnDeck(entry),
-                        );
-                      },
+            child: _Scrollbarless(
+              child: ListView(
+                children: [
+                  Text(
+                    AppStrings.onDeckTitle,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: AppTheme.textMuted,
+                      letterSpacing: 1.1,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  if (isLoadingOnDeck)
+                    const Align(
+                      alignment: Alignment.center,
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else if (onDeckEntries.isEmpty)
+                    Align(
+                      alignment: Alignment.topLeft,
+                      child: Text(
+                        onDeckMessage ?? AppStrings.recentInProgressPlaceholder,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: onDeckMessageIsError ? AppTheme.crimson : AppTheme.textMuted,
+                        ),
+                      ),
+                    )
+                  else
+                    ...onDeckEntries.indexed.expand((entry) => [
+                          if (entry.$1 > 0)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Divider(
+                                height: 1,
+                                thickness: 0.5,
+                                color: AppTheme.border,
+                              ),
+                            ),
+                          _OnDeckCoverTile(
+                            entry: entry.$2,
+                            onTap: () => onOpenOnDeck(entry.$2),
+                          ),
+                        ]),
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           _SidebarActionTile(
@@ -2167,29 +3255,34 @@ class _LibrarySidebar extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Expanded(
-            child: Column(
-              children: [
-                if (isLoadingOnDeck)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 8),
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                for (final entry in onDeckEntries)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Tooltip(
-                      message: '${entry.title}\n${entry.currentPage} / ${entry.totalPages}',
-                      child: _CompactOnDeckThumb(
-                        entry: entry,
-                        onTap: () => onOpenOnDeck(entry),
+            child: _Scrollbarless(
+              child: ListView(
+                children: [
+                  if (isLoadingOnDeck)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Align(
+                        alignment: Alignment.center,
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                  for (final entry in onDeckEntries)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Tooltip(
+                        message: '${entry.title}\n${entry.currentPage} / ${entry.totalPages}',
+                        child: _CompactOnDeckThumb(
+                          entry: entry,
+                          onTap: () => onOpenOnDeck(entry),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           Tooltip(
@@ -2203,6 +3296,7 @@ class _LibrarySidebar extends StatelessWidget {
       ),
     );
   }
+
 }
 
 class _OnDeckCoverTile extends StatelessWidget {
@@ -2328,6 +3422,325 @@ class _SidebarActionTile extends StatelessWidget {
               const SizedBox(width: 10),
               Text(label),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+class _CategoryDialogResult {
+  const _CategoryDialogResult({
+    required this.name,
+    required this.search,
+    required this.pinned,
+  });
+
+  final String name;
+  final String search;
+  final bool pinned;
+}
+
+class _CategoryDialog extends StatefulWidget {
+  const _CategoryDialog({
+    required this.title,
+    required this.submitLabel,
+    this.initialName = '',
+    this.initialSearch = '',
+    this.initialPinned = false,
+  });
+
+  final String title;
+  final String submitLabel;
+  final String initialName;
+  final String initialSearch;
+  final bool initialPinned;
+
+  @override
+  State<_CategoryDialog> createState() => _CategoryDialogState();
+}
+
+class _CategoryDialogState extends State<_CategoryDialog> {
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
+  bool _pinned = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController.text = widget.initialName;
+    _searchController.text = widget.initialSearch;
+    _pinned = widget.initialPinned;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _fieldDecoration() {
+    return InputDecoration(
+      filled: true,
+      fillColor: const Color(0xFF202020),
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      border: const OutlineInputBorder(
+        borderRadius: BorderRadius.zero,
+        borderSide: BorderSide(color: Color(0xFF2A2E39), width: 1),
+      ),
+      enabledBorder: const OutlineInputBorder(
+        borderRadius: BorderRadius.zero,
+        borderSide: BorderSide(color: Color(0xFF2A2E39), width: 1),
+      ),
+      focusedBorder: const OutlineInputBorder(
+        borderRadius: BorderRadius.zero,
+        borderSide: BorderSide(color: Color(0xFF49D7E8), width: 1),
+      ),
+    );
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      return;
+    }
+    Navigator.of(context).pop(
+      _CategoryDialogResult(
+        name: name,
+        search: _searchController.text.trim(),
+        pinned: _pinned,
+      ),
+    );
+  }
+
+  Widget _fieldLabel(BuildContext context, String label) {
+    return Text(
+      label,
+      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+        color: AppTheme.textSecondary,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Container(
+            color: const Color(0xFF1A1A1A),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _fieldLabel(context, AppStrings.categoryNameLabel),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _nameController,
+                  autofocus: true,
+                  style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textPrimary),
+                  decoration: _fieldDecoration(),
+                  textInputAction: TextInputAction.next,
+                ),
+                const SizedBox(height: 10),
+                _fieldLabel(context, AppStrings.categorySearchLabel),
+                const SizedBox(height: 4),
+                Text(
+                  AppStrings.categorySearchHint,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.textMuted,
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _searchController,
+                  style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textPrimary),
+                  decoration: _fieldDecoration(),
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
+                ),
+                const SizedBox(height: 10),
+                Theme(
+                  data: theme.copyWith(
+                    checkboxTheme: CheckboxThemeData(
+                      fillColor: WidgetStateProperty.resolveWith((states) {
+                        if (states.contains(WidgetState.selected)) {
+                          return const Color(0xFF49D7E8);
+                        }
+                        return Colors.transparent;
+                      }),
+                      checkColor: const WidgetStatePropertyAll(Color(0xFF03161A)),
+                      side: const BorderSide(color: Color(0xFF49D7E8), width: 1),
+                      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                    ),
+                  ),
+                  child: InkWell(
+                    onTap: () => setState(() => _pinned = !_pinned),
+                    mouseCursor: SystemMouseCursors.click,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Checkbox(
+                            value: _pinned,
+                            onChanged: (value) => setState(() => _pinned = value ?? false),
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            AppStrings.categoryPinnedLabel,
+                            style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.textMuted,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        minimumSize: const Size(0, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+                      ),
+                      child: const Text(AppStrings.cancel),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _submit,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF49D7E8),
+                        foregroundColor: const Color(0xFF03161A),
+                        elevation: 0,
+                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        minimumSize: const Size(0, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        textStyle: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      child: Text(widget.submitLabel),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DeleteCategoryDialog extends StatelessWidget {
+  const _DeleteCategoryDialog({required this.categoryName});
+
+  final String categoryName;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Container(
+            color: const Color(0xFF1A1A1A),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  AppStrings.deleteCategory,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  AppStrings.deleteCategoryConfirmation,
+                  style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textPrimary),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  categoryName,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  AppStrings.deleteCategoryWarning,
+                  style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTheme.textMuted,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        minimumSize: const Size(0, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+                      ),
+                      child: const Text(AppStrings.cancel),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF49D7E8),
+                        foregroundColor: const Color(0xFF03161A),
+                        elevation: 0,
+                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        minimumSize: const Size(0, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        textStyle: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      child: const Text(AppStrings.delete),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

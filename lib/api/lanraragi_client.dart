@@ -84,7 +84,13 @@ class ArchiveSearchOptions {
 
 /// Category metadata returned by the LANraragi categories endpoint.
 class LanraragiCategory {
-  const LanraragiCategory({required this.id, required this.name, required this.pinned});
+  const LanraragiCategory({
+    required this.id,
+    required this.name,
+    required this.pinned,
+    this.search = '',
+    this.archives = const [],
+  });
 
   factory LanraragiCategory.fromJson(Map<String, dynamic> json) {
     final rawPinned = json['pinned'];
@@ -93,17 +99,30 @@ class LanraragiCategory {
         : rawPinned is bool
             ? rawPinned
             : rawPinned?.toString() == '1' || rawPinned?.toString().toLowerCase() == 'true';
+    final search = json['search']?.toString() ?? '';
+    final archives = (json['archives'] as List?)
+            ?.map((entry) => entry?.toString() ?? '')
+            .where((entry) => entry.isNotEmpty)
+            .toList(growable: false) ??
+        const <String>[];
 
     return LanraragiCategory(
       id: json['id']?.toString() ?? json['catid']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       pinned: pinned,
+      search: search,
+      archives: archives,
     );
   }
 
   final String id;
   final String name;
   final bool pinned;
+  final String search;
+  final List<String> archives;
+
+  bool get isDynamic => search.trim().isNotEmpty;
+  bool get isStatic => !isDynamic;
 }
 
 /// Service wrapper for all LANraragi API calls used by the app.
@@ -116,12 +135,12 @@ class LanraragiClient {
       : baseUrl = _normalizeBaseUrl(baseUrl),
         _dio = Dio(BaseOptions(baseUrl: _normalizeBaseUrl(baseUrl), connectTimeout: Duration(milliseconds: 15000), receiveTimeout: Duration(milliseconds: 15000))) {
     if (apiKey.isNotEmpty) {
-      _dio.options.headers['Authorization'] = 'Bearer ${normalizeApiKey(apiKey)}';
+      _dio.options.headers.addAll(authorizationHeaders(apiKey));
     }
     _dio.options.headers['Accept'] = 'application/json';
   }
 
-  Map<String, Object?> get _authHeaders => {'Authorization': 'Bearer ${normalizeApiKey(apiKey)}'};
+  Map<String, Object?> get _authHeaders => authorizationHeaders(apiKey);
 
   String get _encodedApiKey => base64Encode(utf8.encode(apiKey));
 
@@ -150,6 +169,15 @@ class LanraragiClient {
     return base64Encode(utf8.encode(normalized));
   }
 
+  /// Builds the Authorization header used for authenticated LANraragi requests.
+  static Map<String, String> authorizationHeaders(String apiKey) {
+    final normalizedApiKey = normalizeApiKey(apiKey);
+    if (normalizedApiKey.isEmpty) {
+      return const {};
+    }
+    return {'Authorization': 'Bearer $normalizedApiKey'};
+  }
+
   static bool _looksBase64Encoded(String value) {
     try {
       final decoded = base64Decode(value);
@@ -175,15 +203,22 @@ class LanraragiClient {
     }
   }
 
-  Future<Response<dynamic>> _put(String path, {dynamic data}) async {
+  Future<Response<dynamic>> _put(String path, {dynamic data, String? contentType}) async {
     try {
-      return await _dio.put(path, data: data, options: Options(headers: _authHeaders));
+      return await _dio.put(
+        path,
+        data: data,
+        options: Options(headers: _authHeaders, contentType: contentType),
+      );
     } on DioException catch (e) {
       if (e.response?.statusCode == 401 && _canRetryWithEncodedKey) {
         return _dio.put(
           path,
           data: data,
-          options: Options(headers: {'Authorization': 'Bearer $_encodedApiKey'}),
+          options: Options(
+            headers: {'Authorization': 'Bearer $_encodedApiKey'},
+            contentType: contentType,
+          ),
         );
       }
       rethrow;
@@ -324,6 +359,106 @@ class LanraragiClient {
         return a.name.toLowerCase().compareTo(b.name.toLowerCase());
       });
       return List.unmodifiable(items);
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Creates a category and returns the created category ID.
+  Future<String> createCategory({
+    required String name,
+    String? search,
+    bool pinned = false,
+  }) async {
+    final trimmedName = name.trim();
+    final trimmedSearch = search?.trim() ?? '';
+    try {
+      final resp = await _put(
+        '/api/categories',
+        data: {
+          'name': trimmedName,
+          if (trimmedSearch.isNotEmpty) 'search': trimmedSearch,
+          if (pinned) 'pinned': true,
+        },
+        contentType: Headers.formUrlEncodedContentType,
+      );
+      final data = resp.data;
+      if (data is Map) {
+        final categoryId = data['category_id']?.toString() ?? '';
+        if (categoryId.isNotEmpty) {
+          return categoryId;
+        }
+      }
+      throw LanraragiException('Unexpected response from category creation.');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Updates an existing category.
+  Future<void> updateCategory({
+    required String categoryId,
+    required String name,
+    String? search,
+    bool pinned = false,
+  }) async {
+    final trimmedName = name.trim();
+    final trimmedSearch = search?.trim() ?? '';
+    try {
+      await _put(
+        '/api/categories/$categoryId',
+        data: {
+          'name': trimmedName,
+          'search': trimmedSearch,
+          'pinned': pinned ? '1' : '0',
+        },
+        contentType: Headers.formUrlEncodedContentType,
+      );
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Deletes an existing category.
+  Future<void> deleteCategory(String categoryId) async {
+    try {
+      await _delete('/api/categories/$categoryId');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Loads the static categories containing the specified archive.
+  Future<List<LanraragiCategory>> getArchiveCategories(String archiveId) async {
+    try {
+      final resp = await _get('/api/archives/$archiveId/categories');
+      final data = resp.data;
+      final rawItems = data is Map && data['categories'] is List
+          ? data['categories'] as List
+          : _unwrapList(resp);
+      return rawItems
+          .whereType<Map>()
+          .map((entry) => LanraragiCategory.fromJson(Map<String, dynamic>.from(entry)))
+          .where((category) => category.id.isNotEmpty && category.name.isNotEmpty)
+          .toList(growable: false);
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Adds an archive to a static category.
+  Future<void> addArchiveToCategory(String categoryId, String archiveId) async {
+    try {
+      await _put('/api/categories/$categoryId/$archiveId');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Removes an archive from a static category.
+  Future<void> removeArchiveFromCategory(String categoryId, String archiveId) async {
+    try {
+      await _delete('/api/categories/$categoryId/$archiveId');
     } on DioException catch (e) {
       throw LanraragiException(_describeRequestFailure(e));
     }

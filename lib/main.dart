@@ -7,7 +7,7 @@ import 'screens/library_screen.dart';
 import 'utils/app_strings.dart';
 import 'widgets/theme.dart';
 
-/// Entry point for the Pleasure Principle app.
+/// Entry point for the Kamimashita app.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 

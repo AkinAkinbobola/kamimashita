@@ -123,9 +123,7 @@ class SettingsModel extends ChangeNotifier {
   bool get isLoaded => _isLoaded;
 
   /// Returns the LANraragi authorization header for the current API key.
-  Map<String, String> authHeader() => isValid
-      ? {'Authorization': 'Bearer ${LanraragiClient.normalizeApiKey(apiKey)}'}
-      : {};
+  Map<String, String> authHeader() => isValid ? LanraragiClient.authorizationHeaders(apiKey) : {};
 
   Future<void> _load() async {
     try {

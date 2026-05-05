@@ -1,4 +1,4 @@
-# pleasure_principle
+# Kamimashita
 
 Minimal Flutter client for LANraragi.
 

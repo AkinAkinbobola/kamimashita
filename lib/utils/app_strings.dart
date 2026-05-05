@@ -1,6 +1,6 @@
 /// Centralized user-facing strings for the app shell and settings flow.
 abstract final class AppStrings {
-  static const appTitle = 'Pleasure Principle';
+  static const appTitle = 'Kamimashita';
   static const settingsTitle = 'Settings';
   static const settingsSectionTitle = 'Server Connection';
   static const settingsDescription =
@@ -23,9 +23,33 @@ abstract final class AppStrings {
   static const sortAscending = 'Ascending';
   static const sortDescending = 'Descending';
   static const allCategories = 'All categories';
+  static const categoriesTitle = 'CATEGORIES';
+  static const createCategory = 'Create category';
+  static const newCategoryMenuItem = '+ New category...';
+  static const editCategory = 'Edit category';
+  static const deleteCategory = 'Delete category';
+  static const categoryNameLabel = 'Name';
+  static const categorySearchLabel = 'Auto-fill rule (optional)';
+  static const categorySearchHint = 'e.g. artist:foo or language:english';
+  static const categoryPinnedLabel = 'Pinned';
+  static const create = 'Create';
+  static const edit = 'Edit';
+  static const delete = 'Delete';
+  static const deleteCategoryConfirmation = 'Delete this category?';
+  static const deleteCategoryWarning = 'This action cannot be undone.';
+  static const categoryCreated = 'Category created.';
+  static const categoryUpdated = 'Category updated.';
+  static const categoryDeleted = 'Category deleted.';
+  static const addToCategory = 'Add to category';
+  static const noCategories = 'No categories found.';
+  static const noStaticCategories = 'No static categories available.';
+  static const staticCategory = 'Static';
+  static const dynamicCategory = 'Dynamic';
   static const filterNewOnly = 'New only';
   static const filterUntagged = 'Untagged';
   static const filterHideCompleted = 'Hide completed';
+  static const filters = 'Filters';
+  static const dynamicCategories = 'Dynamic categories';
   static const noArchivesFound = 'No archives found';
   static const noServerConfigured = 'No server configured';
   static const configure = 'Configure';
