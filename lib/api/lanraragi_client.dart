@@ -19,9 +19,13 @@ class LanraragiTagStat {
   factory LanraragiTagStat.fromJson(Map<String, dynamic> json) {
     final namespace = json['namespace']?.toString().trim();
     final text = json['text']?.toString().trim() ?? '';
-    final formatted = namespace == null || namespace.isEmpty ? text : '$namespace:$text';
+    final formatted = namespace == null || namespace.isEmpty
+        ? text
+        : '$namespace:$text';
     final rawWeight = json['weight'];
-    final weight = rawWeight is int ? rawWeight : int.tryParse(rawWeight?.toString() ?? '') ?? 0;
+    final weight = rawWeight is int
+        ? rawWeight
+        : int.tryParse(rawWeight?.toString() ?? '') ?? 0;
     return LanraragiTagStat(value: formatted, weight: weight);
   }
 
@@ -71,7 +75,8 @@ class ArchiveSearchOptions {
   /// Converts the search options into LANraragi query parameters.
   Map<String, dynamic> toQueryParameters() {
     return {
-      if (categoryId != null && categoryId!.trim().isNotEmpty) 'category': categoryId,
+      if (categoryId != null && categoryId!.trim().isNotEmpty)
+        'category': categoryId,
       if (sortBy != null && sortBy!.trim().isNotEmpty) 'sortby': sortBy,
       if (order != null && order!.trim().isNotEmpty) 'order': order,
       if (newOnly) 'newonly': true,
@@ -97,10 +102,12 @@ class LanraragiCategory {
     final pinned = rawPinned is int
         ? rawPinned != 0
         : rawPinned is bool
-            ? rawPinned
-            : rawPinned?.toString() == '1' || rawPinned?.toString().toLowerCase() == 'true';
+        ? rawPinned
+        : rawPinned?.toString() == '1' ||
+              rawPinned?.toString().toLowerCase() == 'true';
     final search = json['search']?.toString() ?? '';
-    final archives = (json['archives'] as List?)
+    final archives =
+        (json['archives'] as List?)
             ?.map((entry) => entry?.toString() ?? '')
             .where((entry) => entry.isNotEmpty)
             .toList(growable: false) ??
@@ -132,8 +139,14 @@ class LanraragiClient {
   final String apiKey; // expected base64-encoded string
 
   LanraragiClient(String baseUrl, this.apiKey)
-      : baseUrl = _normalizeBaseUrl(baseUrl),
-        _dio = Dio(BaseOptions(baseUrl: _normalizeBaseUrl(baseUrl), connectTimeout: Duration(milliseconds: 15000), receiveTimeout: Duration(milliseconds: 15000))) {
+    : baseUrl = _normalizeBaseUrl(baseUrl),
+      _dio = Dio(
+        BaseOptions(
+          baseUrl: _normalizeBaseUrl(baseUrl),
+          connectTimeout: Duration(milliseconds: 15000),
+          receiveTimeout: Duration(milliseconds: 15000),
+        ),
+      ) {
     if (apiKey.isNotEmpty) {
       _dio.options.headers.addAll(authorizationHeaders(apiKey));
     }
@@ -144,7 +157,8 @@ class LanraragiClient {
 
   String get _encodedApiKey => base64Encode(utf8.encode(apiKey));
 
-  bool get _canRetryWithEncodedKey => apiKey.isNotEmpty && _encodedApiKey != apiKey;
+  bool get _canRetryWithEncodedKey =>
+      apiKey.isNotEmpty && _encodedApiKey != apiKey;
 
   static String _normalizeBaseUrl(String value) {
     var normalized = value.trim();
@@ -188,22 +202,35 @@ class LanraragiClient {
     }
   }
 
-  Future<Response<dynamic>> _get(String path, {Map<String, dynamic>? queryParameters}) async {
+  Future<Response<dynamic>> _get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
     try {
-      return await _dio.get(path, queryParameters: queryParameters, options: Options(headers: _authHeaders));
+      return await _dio.get(
+        path,
+        queryParameters: queryParameters,
+        options: Options(headers: _authHeaders),
+      );
     } on DioException catch (e) {
       if (e.response?.statusCode == 401 && _canRetryWithEncodedKey) {
         return _dio.get(
           path,
           queryParameters: queryParameters,
-          options: Options(headers: {'Authorization': 'Bearer $_encodedApiKey'}),
+          options: Options(
+            headers: {'Authorization': 'Bearer $_encodedApiKey'},
+          ),
         );
       }
       rethrow;
     }
   }
 
-  Future<Response<dynamic>> _put(String path, {dynamic data, String? contentType}) async {
+  Future<Response<dynamic>> _put(
+    String path, {
+    dynamic data,
+    String? contentType,
+  }) async {
     try {
       return await _dio.put(
         path,
@@ -230,7 +257,12 @@ class LanraragiClient {
       return await _dio.delete(path, options: Options(headers: _authHeaders));
     } on DioException catch (e) {
       if (e.response?.statusCode == 401 && _canRetryWithEncodedKey) {
-        return _dio.delete(path, options: Options(headers: {'Authorization': 'Bearer $_encodedApiKey'}));
+        return _dio.delete(
+          path,
+          options: Options(
+            headers: {'Authorization': 'Bearer $_encodedApiKey'},
+          ),
+        );
       }
       rethrow;
     }
@@ -261,7 +293,9 @@ class LanraragiClient {
     if (statusCode == 404) {
       return 'Server endpoint not found. Check the server URL.';
     }
-    if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout || e.type == DioExceptionType.sendTimeout) {
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.sendTimeout) {
       return 'Connection timed out. Check the server URL and network.';
     }
     if (e.type == DioExceptionType.connectionError) {
@@ -277,14 +311,27 @@ class LanraragiClient {
   // Helper to normalize list responses (various endpoints may return array or object)
   List<dynamic> _unwrapList(Response resp) {
     final data = resp.data;
-    if (data == null) return [];
-    if (data is List) return data;
+    if (data == null) {
+      return [];
+    }
+    if (data is List) {
+      return data;
+    }
     if (data is Map) {
-      if (data.containsKey('results') && data['results'] is List) return data['results'] as List;
-      if (data.containsKey('data') && data['data'] is List) return data['data'] as List;
+      if (data.containsKey('results') && data['results'] is List) {
+        return data['results'] as List;
+      }
+      if (data.containsKey('data') && data['data'] is List) {
+        return data['data'] as List;
+      }
       // Try to find the first list value
-      final firstList = data.values.firstWhere((v) => v is List, orElse: () => null);
-      if (firstList is List) return firstList;
+      final firstList = data.values.firstWhere(
+        (v) => v is List,
+        orElse: () => null,
+      );
+      if (firstList is List) {
+        return firstList;
+      }
     }
     return [];
   }
@@ -324,10 +371,14 @@ class LanraragiClient {
           .whereType<Map>()
           .map((entry) => Archive.fromJson(Map<String, dynamic>.from(entry)))
           .toList(growable: false);
-      final recordsTotal = _unwrapCount(resp, 'recordsTotal') ?? _unwrapCount(resp, 'total');
-      final recordsFiltered = _unwrapCount(resp, 'recordsFiltered') ?? recordsTotal;
+      final recordsTotal =
+          _unwrapCount(resp, 'recordsTotal') ?? _unwrapCount(resp, 'total');
+      final recordsFiltered =
+          _unwrapCount(resp, 'recordsFiltered') ?? recordsTotal;
       final nextStart = start + items.length;
-      final hasMore = recordsFiltered != null ? nextStart < recordsFiltered : items.isNotEmpty;
+      final hasMore = recordsFiltered != null
+          ? nextStart < recordsFiltered
+          : items.isNotEmpty;
       return ArchivePage(
         items: items,
         recordsTotal: recordsTotal,
@@ -349,8 +400,13 @@ class LanraragiClient {
       final rawItems = _unwrapList(resp);
       final items = rawItems
           .whereType<Map>()
-          .map((entry) => LanraragiCategory.fromJson(Map<String, dynamic>.from(entry)))
-          .where((category) => category.id.isNotEmpty && category.name.isNotEmpty)
+          .map(
+            (entry) =>
+                LanraragiCategory.fromJson(Map<String, dynamic>.from(entry)),
+          )
+          .where(
+            (category) => category.id.isNotEmpty && category.name.isNotEmpty,
+          )
           .toList(growable: true);
       items.sort((a, b) {
         if (a.pinned != b.pinned) {
@@ -438,8 +494,13 @@ class LanraragiClient {
           : _unwrapList(resp);
       return rawItems
           .whereType<Map>()
-          .map((entry) => LanraragiCategory.fromJson(Map<String, dynamic>.from(entry)))
-          .where((category) => category.id.isNotEmpty && category.name.isNotEmpty)
+          .map(
+            (entry) =>
+                LanraragiCategory.fromJson(Map<String, dynamic>.from(entry)),
+          )
+          .where(
+            (category) => category.id.isNotEmpty && category.name.isNotEmpty,
+          )
           .toList(growable: false);
     } on DioException catch (e) {
       throw LanraragiException(_describeRequestFailure(e));
@@ -456,7 +517,10 @@ class LanraragiClient {
   }
 
   /// Removes an archive from a static category.
-  Future<void> removeArchiveFromCategory(String categoryId, String archiveId) async {
+  Future<void> removeArchiveFromCategory(
+    String categoryId,
+    String archiveId,
+  ) async {
     try {
       await _delete('/api/categories/$categoryId/$archiveId');
     } on DioException catch (e) {
@@ -540,20 +604,31 @@ class LanraragiClient {
     try {
       final resp = await _get(
         '/api/database/stats',
-        queryParameters: {
-          'minweight': 2,
-          'hide_excluded_namespaces': 'true',
-        },
+        queryParameters: {'minweight': 2, 'hide_excluded_namespaces': 'true'},
       );
       final data = resp.data;
       if (data is List) {
         return data
             .whereType<Map>()
-            .map((entry) => LanraragiTagStat.fromJson(Map<String, dynamic>.from(entry)))
+            .map(
+              (entry) =>
+                  LanraragiTagStat.fromJson(Map<String, dynamic>.from(entry)),
+            )
             .where((entry) => entry.value.isNotEmpty)
             .toList(growable: false);
       }
       throw LanraragiException('Unexpected response from /api/database/stats');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Fetches the current total archive count from `/api/database/stats`.
+  Future<int?> getArchiveCount() async {
+    try {
+      final resp = await _get('/api/database/stats');
+      final data = resp.data;
+      return _extractArchiveCount(data);
     } on DioException catch (e) {
       throw LanraragiException(_describeRequestFailure(e));
     }
@@ -579,7 +654,10 @@ class LanraragiClient {
 
   /// Get page image URLs for an archive ID.
   /// Prefer OPDS page URLs when a page count is known, since that endpoint is stable across servers.
-  Future<List<String>> getPageUrls(String archiveId, {int? expectedPageCount}) async {
+  Future<List<String>> getPageUrls(
+    String archiveId, {
+    int? expectedPageCount,
+  }) async {
     if (expectedPageCount != null && expectedPageCount > 0) {
       return _buildOpdsPageUrls(archiveId, expectedPageCount);
     }
@@ -645,7 +723,9 @@ class LanraragiClient {
         } else if (item.containsKey('name')) {
           urls.add(_buildArchiveFileUrl(archiveId, item['name'].toString()));
         } else if (item.containsKey('filename')) {
-          urls.add(_buildArchiveFileUrl(archiveId, item['filename'].toString()));
+          urls.add(
+            _buildArchiveFileUrl(archiveId, item['filename'].toString()),
+          );
         }
       }
     }
@@ -671,8 +751,43 @@ class LanraragiClient {
   }
 
   String _buildArchiveFileUrl(String archiveId, String filename) {
-    final base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
+    final base = baseUrl.endsWith('/')
+        ? baseUrl.substring(0, baseUrl.length - 1)
+        : baseUrl;
     return '$base/api/archives/$archiveId/files/${Uri.encodeComponent(filename)}';
   }
-}
 
+  int? _extractArchiveCount(dynamic data) {
+    if (data is Map) {
+      for (final key in const [
+        'archives_per_page',
+        'archive_count',
+        'archives',
+        'recordsTotal',
+        'total',
+        'count',
+      ]) {
+        final count = _parseIntValue(data[key]);
+        if (count != null) {
+          return count;
+        }
+      }
+
+      for (final key in const ['data', 'stats', 'result']) {
+        final nested = _extractArchiveCount(data[key]);
+        if (nested != null) {
+          return nested;
+        }
+      }
+    }
+
+    return _parseIntValue(data);
+  }
+
+  int? _parseIntValue(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    return int.tryParse(value?.toString() ?? '');
+  }
+}

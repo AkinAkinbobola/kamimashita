@@ -18,12 +18,15 @@ class LibraryState extends ChangeNotifier {
 
   List<Archive> _items = const [];
   List<OnDeckEntry> _onDeckEntries = const [];
+  int? _lastKnownArchiveCount;
 
   List<Archive> get items => _items;
   List<OnDeckEntry> get onDeckEntries => _onDeckEntries;
+  int? get lastKnownArchiveCount => _lastKnownArchiveCount;
 
-  void setItems(List<Archive> items) {
+  void setItems(List<Archive> items, {int? archiveCount}) {
     _items = List.unmodifiable(items);
+    _lastKnownArchiveCount = archiveCount ?? _lastKnownArchiveCount;
     notifyListeners();
   }
 
@@ -32,6 +35,7 @@ class LibraryState extends ChangeNotifier {
       return;
     }
     _items = const [];
+    _lastKnownArchiveCount = null;
     notifyListeners();
   }
 

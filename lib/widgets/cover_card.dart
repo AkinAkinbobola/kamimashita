@@ -44,10 +44,7 @@ class CoverCard extends StatelessWidget {
                         gradient: LinearGradient(
                           begin: Alignment.bottomCenter,
                           end: Alignment.topCenter,
-                          colors: [
-                            Color(0xFF000000),
-                            Color(0x00000000),
-                          ],
+                          colors: [Color(0xFF000000), Color(0x00000000)],
                         ),
                       ),
                     ),
@@ -64,11 +61,18 @@ class CoverCard extends StatelessWidget {
                         border: Border.all(color: AppTheme.border, width: 0.5),
                       ),
                       child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.check, size: 12, color: AppTheme.crimson),
+                            Icon(
+                              Icons.check,
+                              size: 12,
+                              color: AppTheme.crimson,
+                            ),
                             SizedBox(width: 4),
                             Text(
                               'Read',
@@ -94,7 +98,10 @@ class CoverCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 3,
+                        ),
                         child: Text(
                           '${pageCount}p',
                           style: const TextStyle(
@@ -144,6 +151,9 @@ class ArchiveThumbnail extends StatelessWidget {
   final double borderRadius;
   final BoxFit fit;
 
+  static final Set<String> _knownMissingThumbnailArchives = <String>{};
+  static final Map<String, int> _thumbnailRetryTimestamps = <String, int>{};
+
   @override
   Widget build(BuildContext context) {
     final settings = SettingsModel.instance;
@@ -155,26 +165,85 @@ class ArchiveThumbnail extends StatelessWidget {
     }
 
     return _CoverImage(
+      archiveCacheIdentity: _archiveCacheIdentity(
+        settings.serverUrl,
+        archive.id,
+      ),
       sources: imageSources,
       headers: headers,
       fit: fit,
     );
   }
 
-  static List<_ThumbnailSource> _resolveImageSources(String serverUrl, Archive archive) {
+  static bool hasKnownMissingThumbnail(String serverUrl, Archive archive) {
+    return _knownMissingThumbnailArchives.contains(
+      _archiveCacheIdentity(serverUrl, archive.id),
+    );
+  }
+
+  static Future<void> evictKnownMissingThumbnailCaches(
+    String serverUrl,
+    Iterable<Archive> archives,
+  ) async {
+    bumpMissingThumbnailRetryTimestamps(serverUrl, archives);
+  }
+
+  static void bumpMissingThumbnailRetryTimestamps(
+    String serverUrl,
+    Iterable<Archive> archives,
+  ) {
+    final candidates = archives
+        .where((archive) {
+          final hasNoCoverUrl =
+              archive.coverUrl == null || archive.coverUrl!.trim().isEmpty;
+          return hasNoCoverUrl || hasKnownMissingThumbnail(serverUrl, archive);
+        })
+        .toList(growable: false);
+
+    if (candidates.isEmpty) {
+      return;
+    }
+
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    for (final archive in candidates) {
+      _thumbnailRetryTimestamps[_archiveCacheIdentity(serverUrl, archive.id)] =
+          timestamp;
+    }
+  }
+
+  static List<_ThumbnailSource> _resolveImageSources(
+    String serverUrl,
+    Archive archive,
+  ) {
     if (serverUrl.isEmpty || archive.id.isEmpty) {
       return const [];
     }
 
     final normalizedBase = _normalizeBase(serverUrl);
-    final thumbnailUrl = '$normalizedBase/api/archives/${archive.id}/thumbnail';
+    final archiveCacheIdentity = _archiveCacheIdentity(serverUrl, archive.id);
+    final retryTimestamp = _thumbnailRetryTimestamps[archiveCacheIdentity];
+    final thumbnailUrl = _withRetryTimestamp(
+      '$normalizedBase/api/archives/${archive.id}/thumbnail',
+      retryTimestamp,
+    );
     final sources = <_ThumbnailSource>[
-      _ThumbnailSource(url: thumbnailUrl, cacheKey: 'archive-thumbnail-${archive.id}'),
+      _ThumbnailSource(
+        url: thumbnailUrl,
+        cacheKey: _withRetryCacheKey(
+          'archive-thumbnail-${archive.id}',
+          retryTimestamp,
+        ),
+      ),
     ];
 
     final coverUrl = _resolveCoverUrl(normalizedBase, archive.coverUrl);
     if (coverUrl != null && coverUrl.isNotEmpty && coverUrl != thumbnailUrl) {
-      sources.add(_ThumbnailSource(url: coverUrl, cacheKey: 'archive-cover-${archive.id}'));
+      sources.add(
+        _ThumbnailSource(
+          url: coverUrl,
+          cacheKey: 'archive-cover-${archive.id}',
+        ),
+      );
     }
 
     return sources;
@@ -205,6 +274,26 @@ class ArchiveThumbnail extends StatelessWidget {
     }
     return normalized;
   }
+
+  static String _archiveCacheIdentity(String serverUrl, String archiveId) {
+    return '${_normalizeBase(serverUrl)}|$archiveId';
+  }
+
+  static String _withRetryTimestamp(String url, int? retryTimestamp) {
+    if (retryTimestamp == null) {
+      return url;
+    }
+
+    final separator = url.contains('?') ? '&' : '?';
+    return '$url${separator}t=$retryTimestamp';
+  }
+
+  static String _withRetryCacheKey(String cacheKey, int? retryTimestamp) {
+    if (retryTimestamp == null) {
+      return cacheKey;
+    }
+    return '$cacheKey-$retryTimestamp';
+  }
 }
 
 class _ThumbnailSource {
@@ -215,8 +304,14 @@ class _ThumbnailSource {
 }
 
 class _CoverImage extends StatefulWidget {
-  const _CoverImage({required this.sources, required this.headers, required this.fit});
+  const _CoverImage({
+    required this.archiveCacheIdentity,
+    required this.sources,
+    required this.headers,
+    required this.fit,
+  });
 
+  final String archiveCacheIdentity;
   final List<_ThumbnailSource> sources;
   final Map<String, String> headers;
   final BoxFit fit;
@@ -244,8 +339,31 @@ class _CoverImageState extends State<_CoverImage> {
       alignment: Alignment.topLeft,
       placeholderFadeInDuration: Duration.zero,
       fadeInDuration: Duration.zero,
-      placeholder: (context, url) => const ColoredBox(color: AppTheme.surfaceRaised),
+      imageBuilder: (context, imageProvider) {
+        ArchiveThumbnail._knownMissingThumbnailArchives.remove(
+          widget.archiveCacheIdentity,
+        );
+        ArchiveThumbnail._thumbnailRetryTimestamps.remove(
+          widget.archiveCacheIdentity,
+        );
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            image: DecorationImage(
+              image: imageProvider,
+              fit: widget.fit,
+              alignment: Alignment.topLeft,
+            ),
+          ),
+        );
+      },
+      placeholder: (context, url) =>
+          const ColoredBox(color: AppTheme.surfaceRaised),
       errorWidget: (context, url, error) {
+        if (_currentIndex >= widget.sources.length - 1) {
+          ArchiveThumbnail._knownMissingThumbnailArchives.add(
+            widget.archiveCacheIdentity,
+          );
+        }
         if (_currentIndex < widget.sources.length - 1) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) {

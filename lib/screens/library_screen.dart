@@ -1,7 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -26,13 +27,32 @@ class LibraryScreen extends ConsumerStatefulWidget {
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
 }
 
+class _LibraryRefreshSnapshot {
+  const _LibraryRefreshSnapshot({
+    required this.items,
+    required this.nextStart,
+    required this.hasMore,
+    required this.recordsFiltered,
+    required this.archiveCount,
+  });
+
+  final List<Archive> items;
+  final int nextStart;
+  final bool hasMore;
+  final int? recordsFiltered;
+  final int? archiveCount;
+}
+
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with WindowListener {
+  static const _focusRevalidateDebounce = Duration(milliseconds: 500);
+
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   late final ProviderSubscription<Object> _libraryRefreshSubscription;
+  Timer? _focusRevalidateTimer;
   List<Archive> _items = const [];
   List<LanraragiTagStat> _tagStats = const [];
   List<_SearchSuggestion> _suggestions = const [];
@@ -71,8 +91,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   bool _isUpdatingSelectedArchiveCategories = false;
   String? _selectedArchiveCategoryMessage;
   bool _selectedArchiveCategoryMessageIsError = false;
+  bool _isRefreshRevalidating = false;
+  bool _isBackgroundLibraryRefreshActive = false;
 
   bool get _isDetailsOpen => _selectedArchive != null;
+
+  LibraryState get _libraryState => ref.read(libraryStateProvider);
 
   void _handleLibraryStateChanged() {
     if (!mounted) {
@@ -134,7 +158,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (!mounted || !SettingsModel.instance.isValid) {
       return;
     }
-    ref.invalidate(libraryProvider);
+    _focusRevalidateTimer?.cancel();
+    _focusRevalidateTimer = Timer(_focusRevalidateDebounce, () {
+      unawaited(_revalidateLibraryOnFocus());
+    });
   }
 
   void _onSettingsChanged() {
@@ -158,6 +185,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _refreshOnDeck();
       _reloadLibrary();
     } else {
+      _focusRevalidateTimer?.cancel();
       _settingsConnectionKey = '';
       setState(() {
         _items = const [];
@@ -179,6 +207,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         _isUpdatingSelectedArchiveCategories = false;
         _selectedArchiveCategoryMessage = null;
         _selectedArchiveCategoryMessageIsError = false;
+        _isRefreshRevalidating = false;
+        _isBackgroundLibraryRefreshActive = false;
       });
     }
   }
@@ -188,6 +218,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (_isDesktopWindowControlsEnabled) {
       windowManager.removeListener(this);
     }
+    _focusRevalidateTimer?.cancel();
     _libraryRefreshSubscription.close();
     ref.read(libraryStateProvider).removeListener(_handleLibraryStateChanged);
     SettingsModel.instance.removeListener(_onSettingsChanged);
@@ -221,6 +252,154 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   void _loadLibrary() {
     _reloadLibrary();
+  }
+
+  Future<void> _revalidateLibraryOnFocus() async {
+    if (!mounted || !SettingsModel.instance.isValid) {
+      return;
+    }
+
+    final cachedArchiveCount = _libraryState.lastKnownArchiveCount;
+    if (cachedArchiveCount == null) {
+      return;
+    }
+
+    final client = LanraragiClient(
+      SettingsModel.instance.serverUrl,
+      SettingsModel.instance.apiKey,
+    );
+
+    int? remoteArchiveCount;
+    try {
+      remoteArchiveCount = await client.getArchiveCount();
+    } catch (_) {
+      return;
+    }
+
+    if (!mounted ||
+        remoteArchiveCount == null ||
+        remoteArchiveCount == cachedArchiveCount) {
+      return;
+    }
+
+    await _refreshLibraryInBackground(
+      showIndicator: false,
+      showErrorToast: true,
+    );
+  }
+
+  Future<void> _refreshLibraryInBackground({
+    required bool showIndicator,
+    required bool showErrorToast,
+  }) async {
+    final settings = SettingsModel.instance;
+    if (!settings.isValid || _isBackgroundLibraryRefreshActive) {
+      return;
+    }
+
+    final previousItems = _items;
+    final currentlyLoadedItemCount = _items.length;
+    setState(() {
+      _isBackgroundLibraryRefreshActive = true;
+      if (showIndicator) {
+        _isRefreshRevalidating = true;
+      }
+    });
+
+    final client = LanraragiClient(settings.serverUrl, settings.apiKey);
+
+    try {
+      final snapshot = await _fetchLibrarySnapshot(
+        client: client,
+        minimumItemCount: currentlyLoadedItemCount,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      ArchiveThumbnail.bumpMissingThumbnailRetryTimestamps(
+        settings.serverUrl,
+        previousItems,
+      );
+
+      setState(() {
+        _items = snapshot.items;
+        _nextStart = snapshot.nextStart;
+        _hasMore = snapshot.hasMore;
+        _filteredResultCount = snapshot.recordsFiltered ?? _filteredResultCount;
+        _loadError = null;
+        _loadMoreError = null;
+      });
+      _libraryState.setItems(
+        snapshot.items,
+        archiveCount: snapshot.archiveCount,
+      );
+      _prefetchThumbnails(snapshot.items);
+      _updateSuggestions();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      if (showErrorToast) {
+        _showStatusSnackBar(
+          error.toString().replaceFirst('LanraragiException: ', ''),
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBackgroundLibraryRefreshActive = false;
+          _isRefreshRevalidating = false;
+        });
+      }
+    }
+  }
+
+  Future<_LibraryRefreshSnapshot> _fetchLibrarySnapshot({
+    required LanraragiClient client,
+    required int minimumItemCount,
+  }) async {
+    final items = <Archive>[];
+    final seenIds = <String>{};
+    var start = 0;
+    int? recordsFiltered;
+    int? archiveCount;
+    var hasMore = true;
+    final targetCount = minimumItemCount <= 0 ? 1 : minimumItemCount;
+
+    while (hasMore && (items.length < targetCount || start == 0)) {
+      final page = await client.fetchArchivePage(
+        filter: _activeQuery,
+        start: start,
+        options: _searchOptions,
+      );
+
+      archiveCount ??= page.recordsTotal ?? page.recordsFiltered;
+      recordsFiltered = page.recordsFiltered ?? recordsFiltered;
+      start = page.nextStart;
+      hasMore = page.hasMore;
+
+      for (final archive in page.items) {
+        final archiveId = archive.id;
+        if (archiveId.isNotEmpty && !seenIds.add(archiveId)) {
+          continue;
+        }
+        items.add(archive);
+      }
+
+      if (page.items.isEmpty) {
+        break;
+      }
+    }
+
+    return _LibraryRefreshSnapshot(
+      items: List.unmodifiable(items),
+      nextStart: start,
+      hasMore: hasMore,
+      recordsFiltered: recordsFiltered,
+      archiveCount: archiveCount,
+    );
   }
 
   void _search(String q) {
@@ -408,7 +587,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         _loadError = null;
         _loadMoreError = null;
       });
-      ref.read(libraryStateProvider).setItems(_items);
+      _libraryState.setItems(
+        _items,
+        archiveCount: page.recordsTotal ?? page.recordsFiltered,
+      );
       _prefetchThumbnails(newItems);
       _updateSuggestions();
     } catch (error) {
@@ -1752,10 +1934,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(52),
         child: _TopBar(
-          onRefresh: () async {
-            await DefaultCacheManager().emptyCache();
-            ref.invalidate(libraryProvider);
+          onRefresh: () {
+            unawaited(
+              _refreshLibraryInBackground(
+                showIndicator: true,
+                showErrorToast: true,
+              ),
+            );
           },
+          isRefreshLoading: _isRefreshRevalidating,
           onOpenSidebarMenu: () => _scaffoldKey.currentState?.openDrawer(),
         ),
       ),
@@ -3312,9 +3499,14 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onRefresh, this.onOpenSidebarMenu});
+  const _TopBar({
+    required this.onRefresh,
+    required this.isRefreshLoading,
+    this.onOpenSidebarMenu,
+  });
 
   final VoidCallback onRefresh;
+  final bool isRefreshLoading;
   final VoidCallback? onOpenSidebarMenu;
 
   @override
@@ -3348,6 +3540,7 @@ class _TopBar extends StatelessWidget {
                     const SizedBox(width: 8),
                     _TopBarIconButton(
                       icon: Icons.refresh,
+                      isLoading: isRefreshLoading,
                       onPressed: onRefresh,
                     ),
                     if (_isDesktopWindowControlsEnabled) ...[
@@ -4181,10 +4374,15 @@ class _Scrollbarless extends StatelessWidget {
 }
 
 class _TopBarIconButton extends StatefulWidget {
-  const _TopBarIconButton({required this.icon, required this.onPressed});
+  const _TopBarIconButton({
+    required this.icon,
+    required this.onPressed,
+    this.isLoading = false,
+  });
 
   final IconData icon;
   final VoidCallback onPressed;
+  final bool isLoading;
 
   @override
   State<_TopBarIconButton> createState() => _TopBarIconButtonState();
@@ -4196,20 +4394,29 @@ class _TopBarIconButtonState extends State<_TopBarIconButton> {
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
-      cursor: SystemMouseCursors.click,
+      cursor: widget.isLoading
+          ? SystemMouseCursors.progress
+          : SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
-        onTap: widget.onPressed,
+        onTap: widget.isLoading ? null : widget.onPressed,
         behavior: HitTestBehavior.opaque,
         child: SizedBox(
           width: 28,
           height: 28,
-          child: Icon(
-            widget.icon,
-            size: 18,
-            color: _hovered ? AppTheme.textPrimary : AppTheme.textSecondary,
-          ),
+          child: widget.isLoading
+              ? const Padding(
+                  padding: EdgeInsets.all(5),
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(
+                  widget.icon,
+                  size: 18,
+                  color: _hovered
+                      ? AppTheme.textPrimary
+                      : AppTheme.textSecondary,
+                ),
         ),
       ),
     );
