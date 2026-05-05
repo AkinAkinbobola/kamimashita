@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/archive.dart';
+import '../utils/archive_thumbnail_url.dart';
 import 'settings_provider.dart';
 
 /// Invalidating this provider triggers the library screen to reload data.
@@ -19,10 +20,44 @@ class LibraryState extends ChangeNotifier {
   List<Archive> _items = const [];
   List<OnDeckEntry> _onDeckEntries = const [];
   int? _lastKnownArchiveCount;
+  final Set<String> _missingThumbnailArchiveIds = <String>{};
+  final Map<String, int> _thumbnailRetryTimestamps = <String, int>{};
 
   List<Archive> get items => _items;
   List<OnDeckEntry> get onDeckEntries => _onDeckEntries;
   int? get lastKnownArchiveCount => _lastKnownArchiveCount;
+  Set<String> get missingThumbnailArchiveIds =>
+      Set.unmodifiable(_missingThumbnailArchiveIds);
+
+  bool hasMissingThumbnail(String archiveId) {
+    return _missingThumbnailArchiveIds.contains(archiveId.trim());
+  }
+
+  int? thumbnailRetryTimestamp(String archiveId) {
+    return _thumbnailRetryTimestamps[archiveId.trim()];
+  }
+
+  List<ArchiveImageSource> resolveArchiveImageSources(
+    String serverUrl,
+    Archive archive,
+  ) {
+    return buildArchiveImageSources(
+      serverUrl,
+      archive,
+      retryTimestamp: thumbnailRetryTimestamp(archive.id),
+    );
+  }
+
+  ArchiveImageSource? primaryArchiveThumbnailSource(
+    String serverUrl,
+    Archive archive,
+  ) {
+    return buildPrimaryArchiveThumbnailSource(
+      serverUrl,
+      archive,
+      retryTimestamp: thumbnailRetryTimestamp(archive.id),
+    );
+  }
 
   void setItems(List<Archive> items, {int? archiveCount}) {
     _items = List.unmodifiable(items);
@@ -54,6 +89,69 @@ class LibraryState extends ChangeNotifier {
       return;
     }
     _items = List.unmodifiable(nextItems);
+    notifyListeners();
+  }
+
+  void markThumbnailMissing(String archiveId) {
+    final normalizedArchiveId = archiveId.trim();
+    if (normalizedArchiveId.isEmpty) {
+      return;
+    }
+
+    _missingThumbnailArchiveIds.add(normalizedArchiveId);
+    _thumbnailRetryTimestamps[normalizedArchiveId] =
+        DateTime.now().millisecondsSinceEpoch;
+    notifyListeners();
+  }
+
+  void clearThumbnailMissing(String archiveId) {
+    final normalizedArchiveId = archiveId.trim();
+    if (normalizedArchiveId.isEmpty) {
+      return;
+    }
+
+    final removedMissing = _missingThumbnailArchiveIds.remove(
+      normalizedArchiveId,
+    );
+    final removedTimestamp =
+        _thumbnailRetryTimestamps.remove(normalizedArchiveId) != null;
+    if (!removedMissing && !removedTimestamp) {
+      return;
+    }
+    notifyListeners();
+  }
+
+  void bumpMissingThumbnailRetryTimestamps(Iterable<Archive> archives) {
+    final candidates = archives
+        .where((archive) {
+          final hasNoCoverUrl =
+              archive.coverUrl == null || archive.coverUrl!.trim().isEmpty;
+          return hasNoCoverUrl || hasMissingThumbnail(archive.id);
+        })
+        .toList(growable: false);
+
+    if (candidates.isEmpty) {
+      return;
+    }
+
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    for (final archive in candidates) {
+      final archiveId = archive.id.trim();
+      if (archiveId.isEmpty) {
+        continue;
+      }
+      _thumbnailRetryTimestamps[archiveId] = timestamp;
+    }
+    notifyListeners();
+  }
+
+  void clearThumbnailState() {
+    if (_missingThumbnailArchiveIds.isEmpty &&
+        _thumbnailRetryTimestamps.isEmpty) {
+      return;
+    }
+    _missingThumbnailArchiveIds.clear();
+    _thumbnailRetryTimestamps.clear();
     notifyListeners();
   }
 

@@ -337,10 +337,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         return;
       }
 
-      ArchiveThumbnail.bumpMissingThumbnailRetryTimestamps(
-        settings.serverUrl,
-        previousItems,
-      );
+      _libraryState.bumpMissingThumbnailRetryTimestamps(previousItems);
 
       setState(() {
         _items = snapshot.items;
@@ -1026,7 +1023,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       return;
     }
 
-    final normalizedBase = _normalizeThumbnailBase(settings.serverUrl);
     final headers = settings.authHeader();
     final candidates = archives
         .where((archive) => archive.id.isNotEmpty)
@@ -1039,10 +1035,17 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       }
 
       for (final archive in candidates) {
+        final source = _libraryState.primaryArchiveThumbnailSource(
+          settings.serverUrl,
+          archive,
+        );
+        if (source == null) {
+          continue;
+        }
         final provider = CachedNetworkImageProvider(
-          '$normalizedBase/api/archives/${archive.id}/thumbnail',
+          source.url,
           headers: headers,
-          cacheKey: 'archive-thumbnail-${archive.id}',
+          cacheKey: source.cacheKey,
         );
         precacheImage(provider, context);
       }
@@ -1248,18 +1251,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         });
       }
     }
-  }
-
-  String _normalizeThumbnailBase(String value) {
-    var normalized = value.trim();
-    normalized = normalized.replaceAll(RegExp(r',\s*$'), '');
-    if (normalized.endsWith('/')) {
-      normalized = normalized.substring(0, normalized.length - 1);
-    }
-    if (normalized.toLowerCase().endsWith('/api')) {
-      normalized = normalized.substring(0, normalized.length - 4);
-    }
-    return normalized;
   }
 
   Future<void> _ensureTagStatsLoaded() async {

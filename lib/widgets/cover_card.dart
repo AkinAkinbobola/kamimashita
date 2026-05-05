@@ -1,8 +1,12 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/archive.dart';
+import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
+import '../utils/archive_thumbnail_url.dart';
 import 'theme.dart';
 
 class CoverCard extends StatelessWidget {
@@ -139,7 +143,7 @@ class CoverCard extends StatelessWidget {
   }
 }
 
-class ArchiveThumbnail extends StatelessWidget {
+class ArchiveThumbnail extends ConsumerWidget {
   const ArchiveThumbnail({
     super.key,
     required this.archive,
@@ -151,13 +155,14 @@ class ArchiveThumbnail extends StatelessWidget {
   final double borderRadius;
   final BoxFit fit;
 
-  static final Set<String> _knownMissingThumbnailArchives = <String>{};
-  static final Map<String, int> _thumbnailRetryTimestamps = <String, int>{};
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final settings = SettingsModel.instance;
-    final imageSources = _resolveImageSources(settings.serverUrl, archive);
+    final libraryState = ref.watch(libraryStateProvider);
+    final imageSources = libraryState.resolveArchiveImageSources(
+      settings.serverUrl,
+      archive,
+    );
     final headers = settings.authHeader();
 
     if (imageSources.isEmpty) {
@@ -165,163 +170,58 @@ class ArchiveThumbnail extends StatelessWidget {
     }
 
     return _CoverImage(
-      archiveCacheIdentity: _archiveCacheIdentity(
-        settings.serverUrl,
-        archive.id,
-      ),
+      archiveId: archive.id,
       sources: imageSources,
       headers: headers,
       fit: fit,
     );
   }
-
-  static bool hasKnownMissingThumbnail(String serverUrl, Archive archive) {
-    return _knownMissingThumbnailArchives.contains(
-      _archiveCacheIdentity(serverUrl, archive.id),
-    );
-  }
-
-  static Future<void> evictKnownMissingThumbnailCaches(
-    String serverUrl,
-    Iterable<Archive> archives,
-  ) async {
-    bumpMissingThumbnailRetryTimestamps(serverUrl, archives);
-  }
-
-  static void bumpMissingThumbnailRetryTimestamps(
-    String serverUrl,
-    Iterable<Archive> archives,
-  ) {
-    final candidates = archives
-        .where((archive) {
-          final hasNoCoverUrl =
-              archive.coverUrl == null || archive.coverUrl!.trim().isEmpty;
-          return hasNoCoverUrl || hasKnownMissingThumbnail(serverUrl, archive);
-        })
-        .toList(growable: false);
-
-    if (candidates.isEmpty) {
-      return;
-    }
-
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    for (final archive in candidates) {
-      _thumbnailRetryTimestamps[_archiveCacheIdentity(serverUrl, archive.id)] =
-          timestamp;
-    }
-  }
-
-  static List<_ThumbnailSource> _resolveImageSources(
-    String serverUrl,
-    Archive archive,
-  ) {
-    if (serverUrl.isEmpty || archive.id.isEmpty) {
-      return const [];
-    }
-
-    final normalizedBase = _normalizeBase(serverUrl);
-    final archiveCacheIdentity = _archiveCacheIdentity(serverUrl, archive.id);
-    final retryTimestamp = _thumbnailRetryTimestamps[archiveCacheIdentity];
-    final thumbnailUrl = _withRetryTimestamp(
-      '$normalizedBase/api/archives/${archive.id}/thumbnail',
-      retryTimestamp,
-    );
-    final sources = <_ThumbnailSource>[
-      _ThumbnailSource(
-        url: thumbnailUrl,
-        cacheKey: _withRetryCacheKey(
-          'archive-thumbnail-${archive.id}',
-          retryTimestamp,
-        ),
-      ),
-    ];
-
-    final coverUrl = _resolveCoverUrl(normalizedBase, archive.coverUrl);
-    if (coverUrl != null && coverUrl.isNotEmpty && coverUrl != thumbnailUrl) {
-      sources.add(
-        _ThumbnailSource(
-          url: coverUrl,
-          cacheKey: 'archive-cover-${archive.id}',
-        ),
-      );
-    }
-
-    return sources;
-  }
-
-  static String? _resolveCoverUrl(String normalizedBase, String? rawCoverUrl) {
-    final cover = rawCoverUrl?.trim();
-    if (cover == null || cover.isEmpty) {
-      return null;
-    }
-
-    if (cover.startsWith('http://') || cover.startsWith('https://')) {
-      return cover;
-    }
-    if (cover.startsWith('/')) {
-      return '$normalizedBase$cover';
-    }
-    return '$normalizedBase/${cover.replaceFirst(RegExp(r'^/+'), '')}';
-  }
-
-  static String _normalizeBase(String value) {
-    var normalized = value.trim().replaceAll(RegExp(r',\s*$'), '');
-    if (normalized.endsWith('/')) {
-      normalized = normalized.substring(0, normalized.length - 1);
-    }
-    if (normalized.toLowerCase().endsWith('/api')) {
-      normalized = normalized.substring(0, normalized.length - 4);
-    }
-    return normalized;
-  }
-
-  static String _archiveCacheIdentity(String serverUrl, String archiveId) {
-    return '${_normalizeBase(serverUrl)}|$archiveId';
-  }
-
-  static String _withRetryTimestamp(String url, int? retryTimestamp) {
-    if (retryTimestamp == null) {
-      return url;
-    }
-
-    final separator = url.contains('?') ? '&' : '?';
-    return '$url${separator}t=$retryTimestamp';
-  }
-
-  static String _withRetryCacheKey(String cacheKey, int? retryTimestamp) {
-    if (retryTimestamp == null) {
-      return cacheKey;
-    }
-    return '$cacheKey-$retryTimestamp';
-  }
 }
 
-class _ThumbnailSource {
-  const _ThumbnailSource({required this.url, required this.cacheKey});
-
-  final String url;
-  final String cacheKey;
-}
-
-class _CoverImage extends StatefulWidget {
+class _CoverImage extends ConsumerStatefulWidget {
   const _CoverImage({
-    required this.archiveCacheIdentity,
+    required this.archiveId,
     required this.sources,
     required this.headers,
     required this.fit,
   });
 
-  final String archiveCacheIdentity;
-  final List<_ThumbnailSource> sources;
+  final String archiveId;
+  final List<ArchiveImageSource> sources;
   final Map<String, String> headers;
   final BoxFit fit;
 
   @override
-  State<_CoverImage> createState() => _CoverImageState();
+  ConsumerState<_CoverImage> createState() => _CoverImageState();
 }
 
-class _CoverImageState extends State<_CoverImage> {
+class _CoverImageState extends ConsumerState<_CoverImage> {
   int _currentIndex = 0;
+
+  @override
+  void didUpdateWidget(covariant _CoverImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final sourcesChanged =
+        widget.sources.length != oldWidget.sources.length ||
+        !listEquals(
+          widget.sources
+              .map((source) => source.cacheKey)
+              .toList(growable: false),
+          oldWidget.sources
+              .map((source) => source.cacheKey)
+              .toList(growable: false),
+        );
+
+    if (sourcesChanged) {
+      _currentIndex = 0;
+      return;
+    }
+
+    if (_currentIndex >= widget.sources.length) {
+      _currentIndex = widget.sources.isEmpty ? 0 : widget.sources.length - 1;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -340,12 +240,7 @@ class _CoverImageState extends State<_CoverImage> {
       placeholderFadeInDuration: Duration.zero,
       fadeInDuration: Duration.zero,
       imageBuilder: (context, imageProvider) {
-        ArchiveThumbnail._knownMissingThumbnailArchives.remove(
-          widget.archiveCacheIdentity,
-        );
-        ArchiveThumbnail._thumbnailRetryTimestamps.remove(
-          widget.archiveCacheIdentity,
-        );
+        ref.read(libraryStateProvider).clearThumbnailMissing(widget.archiveId);
         return DecoratedBox(
           decoration: BoxDecoration(
             image: DecorationImage(
@@ -360,9 +255,7 @@ class _CoverImageState extends State<_CoverImage> {
           const ColoredBox(color: AppTheme.surfaceRaised),
       errorWidget: (context, url, error) {
         if (_currentIndex >= widget.sources.length - 1) {
-          ArchiveThumbnail._knownMissingThumbnailArchives.add(
-            widget.archiveCacheIdentity,
-          );
+          ref.read(libraryStateProvider).markThumbnailMissing(widget.archiveId);
         }
         if (_currentIndex < widget.sources.length - 1) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
