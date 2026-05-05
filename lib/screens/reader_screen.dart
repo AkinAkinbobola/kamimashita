@@ -12,6 +12,7 @@ import '../api/lanraragi_client.dart';
 import '../models/archive.dart';
 import '../providers/client_provider.dart';
 import '../providers/settings_provider.dart';
+import '../widgets/cover_card.dart';
 import '../widgets/theme.dart';
 
 enum ReaderFitMode { contain, fitWidth, fitHeight, originalSize }
@@ -19,6 +20,8 @@ enum ReaderFitMode { contain, fitWidth, fitHeight, originalSize }
 enum _PagedScrollResetAnchor { top, bottom }
 
 enum _PagedWheelEdge { top, bottom }
+
+enum _ArchiveBoundary { beginning, end }
 
 const double _trackpadPanSensitivity = 0.6;
 
@@ -52,6 +55,8 @@ class ReaderScreen extends ConsumerStatefulWidget {
 class _ReaderScreenState extends ConsumerState<ReaderScreen>
     with WindowListener {
   static const _keyboardScrollDuration = Duration(milliseconds: 150);
+  static const _cursorHideDelay = Duration(seconds: 3);
+  static const _overlayAnimationDuration = Duration(milliseconds: 200);
 
   late Future<_ReaderDocument> _documentFuture;
   final FocusNode _readerFocusNode = FocusNode();
@@ -59,6 +64,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   final GlobalKey _scrollViewportKey = GlobalKey();
   PageController? _pageController;
   Timer? _chromeHideTimer;
+  Timer? _cursorHideTimer;
   Timer? _progressSyncTimer;
 
   bool _isControlsVisible = true;
@@ -85,6 +91,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   List<GlobalKey<_ReaderPageState>> _pagedPageStateKeys = const [];
   Map<String, ImageProvider<Object>> _pageImageProviders = {};
   double? _continuousAnimatedScrollTarget;
+  bool _cursorVisible = true;
+  _ArchiveBoundary? _armedArchiveBoundary;
+  _ArchiveBoundary? _visibleArchiveBoundary;
 
   @override
   void initState() {
@@ -100,6 +109,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       if (mounted) {
         _readerFocusNode.requestFocus();
         _scheduleControlsHide();
+        _scheduleCursorHide();
         _loadFullscreenState();
       }
     });
@@ -108,6 +118,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   @override
   void dispose() {
     _chromeHideTimer?.cancel();
+    _cursorHideTimer?.cancel();
     _progressSyncTimer?.cancel();
     if (_supportsWindowFullscreen) {
       windowManager.removeListener(this);
@@ -358,6 +369,42 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     };
   }
 
+  void _scheduleCursorHide() {
+    _cursorHideTimer?.cancel();
+    _cursorHideTimer = Timer(_cursorHideDelay, () {
+      if (!mounted || !_cursorVisible) {
+        return;
+      }
+      setState(() {
+        _cursorVisible = false;
+      });
+    });
+  }
+
+  void _handleReaderHover(PointerHoverEvent event) {
+    if (!mounted) {
+      return;
+    }
+    if (!_cursorVisible) {
+      setState(() {
+        _cursorVisible = true;
+      });
+    }
+    _scheduleCursorHide();
+  }
+
+  void _handleReaderPointerDown(PointerDownEvent event) {
+    if (!mounted) {
+      return;
+    }
+    if (!_cursorVisible) {
+      setState(() {
+        _cursorVisible = true;
+      });
+    }
+    _scheduleCursorHide();
+  }
+
   void _scheduleControlsHide() {
     _chromeHideTimer?.cancel();
     if (!_autoHideChrome ||
@@ -400,6 +447,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       }
     });
     _scheduleControlsHide();
+  }
+
+  void _handleReaderToggleControlsTap() {
+    if (!_cursorVisible) {
+      setState(() {
+        _cursorVisible = true;
+      });
+    }
+    _scheduleCursorHide();
+    _toggleControls();
   }
 
   void _closeSettingsPopover() {
@@ -621,22 +678,66 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   void _goNextPage(_ReaderDocument document, {bool fromWheel = false}) {
     if (!_canGoReadingForward(document.pageUrls.length)) {
+      _handleArchiveBoundaryAttempt(_ArchiveBoundary.end, confirmed: fromWheel);
       return;
     }
     if (fromWheel && !_consumePagedWheelNavigationCooldown()) {
       return;
     }
+    _clearArchiveBoundaryState();
     _goReadingForward(document);
   }
 
   void _goPreviousPage(_ReaderDocument document, {bool fromWheel = false}) {
     if (!_canGoReadingBackward(document.pageUrls.length)) {
+      _handleArchiveBoundaryAttempt(
+        _ArchiveBoundary.beginning,
+        confirmed: fromWheel,
+      );
       return;
     }
     if (fromWheel && !_consumePagedWheelNavigationCooldown()) {
       return;
     }
+    _clearArchiveBoundaryState();
     _goReadingBackward(document);
+  }
+
+  void _handleArchiveBoundaryAttempt(
+    _ArchiveBoundary boundary, {
+    required bool confirmed,
+  }) {
+    if (_visibleArchiveBoundary == boundary) {
+      return;
+    }
+
+    if (confirmed || _armedArchiveBoundary == boundary) {
+      setState(() {
+        _armedArchiveBoundary = null;
+        _visibleArchiveBoundary = boundary;
+      });
+      return;
+    }
+
+    setState(() {
+      _armedArchiveBoundary = boundary;
+    });
+  }
+
+  void _clearArchiveBoundaryState() {
+    if (_armedArchiveBoundary == null && _visibleArchiveBoundary == null) {
+      return;
+    }
+
+    setState(() {
+      _armedArchiveBoundary = null;
+      _visibleArchiveBoundary = null;
+    });
+  }
+
+  void _handleArchiveBoundaryBackToLibrary() {
+    _clearArchiveBoundaryState();
+    _exitReader();
   }
 
   void _setContinuousScroll(bool value) {
@@ -739,6 +840,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   void _setCurrentPage(int index, String archiveId) {
+    if (_armedArchiveBoundary != null || _visibleArchiveBoundary != null) {
+      _armedArchiveBoundary = null;
+      _visibleArchiveBoundary = null;
+    }
     if (_currentPage != index && mounted) {
       setState(() {
         _currentPage = index;
@@ -1004,6 +1109,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         if (event is! KeyDownEvent) {
           return KeyEventResult.ignored;
         }
+        if (_visibleArchiveBoundary != null) {
+          _clearArchiveBoundaryState();
+          return KeyEventResult.handled;
+        }
         if (_showSettingsPopover) {
           setState(() {
             _showSettingsPopover = false;
@@ -1078,6 +1187,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
             final document = snapshot.data!;
             final pageCount = document.pageUrls.length;
             final controlsVisible = _isControlsVisible || _showSettingsPopover;
+            final archiveBoundaryVisible = _visibleArchiveBoundary != null;
             final pageController =
                 _pageController ??
                 PageController(initialPage: document.initialPage);
@@ -1086,380 +1196,485 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               focusNode: _readerFocusNode,
               autofocus: true,
               onKeyEvent: (node, event) => _handleKeyEvent(event, document),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.black,
-                      child: _continuousScroll
-                          ? NotificationListener<ScrollNotification>(
-                              onNotification: (notification) {
-                                if (notification is ScrollUpdateNotification ||
-                                    notification is ScrollEndNotification) {
-                                  _scheduleVisiblePageUpdate();
-                                }
-                                return false;
-                              },
-                              child: Listener(
-                                behavior: HitTestBehavior.opaque,
-                                onPointerSignal: _handleContinuousPointerSignal,
-                                onPointerPanZoomUpdate:
-                                    _handleContinuousPanZoomUpdate,
-                                child: Container(
-                                  key: _scrollViewportKey,
-                                  child: _Scrollbarless(
-                                    child: ListView.builder(
-                                      key: ValueKey('scroll-$_reloadToken'),
-                                      controller: _scrollController,
-                                      physics:
-                                          _usesCustomContinuousPointerScrolling
-                                          ? const NeverScrollableScrollPhysics()
-                                          : null,
-                                      cacheExtent:
-                                          MediaQuery.sizeOf(context).height *
-                                          1.5,
-                                      itemCount: pageCount,
-                                      itemBuilder: (context, index) {
-                                        return KeyedSubtree(
-                                          key: _pageKeys[index],
-                                          child: _ReaderPage(
-                                            imageProvider: _pageImageProvider(
-                                              document.archive.id,
-                                              index + 1,
-                                              document.pageUrls[index],
-                                              headers,
-                                            ),
-                                            pageNumber: index + 1,
-                                            fitMode: ReaderFitMode.fitWidth,
-                                            zoomEnabled: true,
-                                            zoomLevel: _zoomLevel,
-                                            continuousLayout: true,
-                                            onZoomLevelChanged: _setZoomLevel,
-                                            onInteraction: _toggleControls,
-                                            onRetryRequested: _retry,
+              child: MouseRegion(
+                cursor: _cursorVisible
+                    ? SystemMouseCursors.basic
+                    : SystemMouseCursors.none,
+                onHover: _handleReaderHover,
+                child: Listener(
+                  behavior: HitTestBehavior.translucent,
+                  onPointerDown: _handleReaderPointerDown,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: ColoredBox(
+                          color: Colors.black,
+                          child: _continuousScroll
+                              ? NotificationListener<ScrollNotification>(
+                                  onNotification: (notification) {
+                                    if (notification
+                                            is ScrollUpdateNotification ||
+                                        notification is ScrollEndNotification) {
+                                      _scheduleVisiblePageUpdate();
+                                    }
+                                    return false;
+                                  },
+                                  child: Listener(
+                                    behavior: HitTestBehavior.opaque,
+                                    onPointerSignal:
+                                        _handleContinuousPointerSignal,
+                                    onPointerPanZoomUpdate:
+                                        _handleContinuousPanZoomUpdate,
+                                    child: Container(
+                                      key: _scrollViewportKey,
+                                      child: _Scrollbarless(
+                                        child: ListView.builder(
+                                          key: ValueKey('scroll-$_reloadToken'),
+                                          controller: _scrollController,
+                                          physics:
+                                              _usesCustomContinuousPointerScrolling
+                                              ? const NeverScrollableScrollPhysics()
+                                              : null,
+                                          cacheExtent:
+                                              MediaQuery.sizeOf(
+                                                context,
+                                              ).height *
+                                              1.5,
+                                          itemCount: pageCount,
+                                          itemBuilder: (context, index) {
+                                            return KeyedSubtree(
+                                              key: _pageKeys[index],
+                                              child: _ReaderPage(
+                                                imageProvider:
+                                                    _pageImageProvider(
+                                                      document.archive.id,
+                                                      index + 1,
+                                                      document.pageUrls[index],
+                                                      headers,
+                                                    ),
+                                                pageNumber: index + 1,
+                                                fitMode: ReaderFitMode.fitWidth,
+                                                zoomEnabled: true,
+                                                zoomLevel: _zoomLevel,
+                                                continuousLayout: true,
+                                                onZoomLevelChanged:
+                                                    _setZoomLevel,
+                                                onInteraction:
+                                                    _handleReaderToggleControlsTap,
+                                                onRetryRequested: _retry,
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : PageView.builder(
+                                  key: ValueKey(
+                                    'pageview-$_reloadToken-$_rightToLeft',
+                                  ),
+                                  controller: pageController,
+                                  allowImplicitScrolling: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  reverse: _rightToLeft,
+                                  itemCount: pageCount,
+                                  onPageChanged: (index) {
+                                    _setCurrentPage(index, document.archive.id);
+                                  },
+                                  itemBuilder: (context, index) {
+                                    return _ReaderPage(
+                                      key: _pagedPageStateKeys[index],
+                                      imageProvider: _pageImageProvider(
+                                        document.archive.id,
+                                        index + 1,
+                                        document.pageUrls[index],
+                                        headers,
+                                      ),
+                                      pageNumber: index + 1,
+                                      fitMode: _fitMode,
+                                      zoomEnabled: true,
+                                      zoomLevel: _zoomLevel,
+                                      keepWarm:
+                                          (index - _currentPage).abs() <= 1,
+                                      isActive: index == _currentPage,
+                                      pagedNavigationEnabled: true,
+                                      pagedScrollResetToken:
+                                          _pagedScrollResetToken,
+                                      pagedScrollResetAnchor:
+                                          _pagedScrollResetAnchor,
+                                      onNextPageRequested: () => _goNextPage(
+                                        document,
+                                        fromWheel: false,
+                                      ),
+                                      onPreviousPageRequested: () =>
+                                          _goPreviousPage(
+                                            document,
+                                            fromWheel: false,
                                           ),
-                                        );
-                                      },
+                                      onNextPageFromWheelRequested: () =>
+                                          _goNextPage(
+                                            document,
+                                            fromWheel: true,
+                                          ),
+                                      onPreviousPageFromWheelRequested: () =>
+                                          _goPreviousPage(
+                                            document,
+                                            fromWheel: true,
+                                          ),
+                                      onZoomLevelChanged: _setZoomLevel,
+                                      onToggleControlsRequested:
+                                          _handleReaderToggleControlsTap,
+                                      onInteraction: null,
+                                      onRetryRequested: _retry,
+                                    );
+                                  },
+                                ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: MouseRegion(
+                          onEnter: (_) => _setControlsHovering(true),
+                          onExit: (_) => _setControlsHovering(false),
+                          child: IgnorePointer(
+                            ignoring: !controlsVisible,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 180),
+                              opacity: controlsVisible ? 1 : 0,
+                              child: SafeArea(
+                                bottom: false,
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    12,
+                                    12,
+                                    0,
+                                  ),
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xB3101217),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(
+                                        color: const Color(0xFF252B36),
+                                        width: 0.5,
+                                      ),
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 8,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          _ReaderBarButton(
+                                            tooltip: 'Exit reader',
+                                            icon: Icons.arrow_back_rounded,
+                                            onPressed: _exitReader,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  document.archive.title,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: theme
+                                                      .textTheme
+                                                      .titleMedium
+                                                      ?.copyWith(
+                                                        color: Colors.white,
+                                                      ),
+                                                ),
+                                                Text(
+                                                  '${_currentPage + 1} / $pageCount',
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: Colors.white70,
+                                                      ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          _ReaderBarButton(
+                                            tooltip: 'Reader settings',
+                                            icon: Icons.tune_rounded,
+                                            onPressed: _toggleSettingsPopover,
+                                            active: _showSettingsPopover,
+                                          ),
+                                          if (_supportsWindowFullscreen) ...[
+                                            const SizedBox(width: 4),
+                                            _ReaderBarButton(
+                                              tooltip: _isFullscreen
+                                                  ? 'Exit fullscreen'
+                                                  : 'Fullscreen',
+                                              icon: _isFullscreen
+                                                  ? Icons
+                                                        .fullscreen_exit_rounded
+                                                  : Icons.fullscreen_rounded,
+                                              onPressed: _toggleFullscreen,
+                                              active: _isFullscreen,
+                                            ),
+                                          ],
+                                          const SizedBox(width: 4),
+                                          _ReaderBarButton(
+                                            tooltip: 'Reload pages',
+                                            icon: Icons.refresh_rounded,
+                                            onPressed: _retry,
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                            )
-                          : PageView.builder(
-                              key: ValueKey(
-                                'pageview-$_reloadToken-$_rightToLeft',
-                              ),
-                              controller: pageController,
-                              allowImplicitScrolling: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              reverse: _rightToLeft,
-                              itemCount: pageCount,
-                              onPageChanged: (index) {
-                                _setCurrentPage(index, document.archive.id);
-                              },
-                              itemBuilder: (context, index) {
-                                return _ReaderPage(
-                                  key: _pagedPageStateKeys[index],
-                                  imageProvider: _pageImageProvider(
-                                    document.archive.id,
-                                    index + 1,
-                                    document.pageUrls[index],
-                                    headers,
-                                  ),
-                                  pageNumber: index + 1,
-                                  fitMode: _fitMode,
-                                  zoomEnabled: true,
-                                  zoomLevel: _zoomLevel,
-                                  keepWarm: (index - _currentPage).abs() <= 1,
-                                  isActive: index == _currentPage,
-                                  pagedNavigationEnabled: true,
-                                  pagedScrollResetToken: _pagedScrollResetToken,
-                                  pagedScrollResetAnchor:
-                                      _pagedScrollResetAnchor,
-                                  onNextPageRequested: () =>
-                                      _goNextPage(document, fromWheel: false),
-                                  onPreviousPageRequested: () =>
-                                      _goPreviousPage(
-                                        document,
-                                        fromWheel: false,
-                                      ),
-                                  onNextPageFromWheelRequested: () =>
-                                      _goNextPage(document, fromWheel: true),
-                                  onPreviousPageFromWheelRequested: () =>
-                                      _goPreviousPage(
-                                        document,
-                                        fromWheel: true,
-                                      ),
-                                  onZoomLevelChanged: _setZoomLevel,
-                                  onToggleControlsRequested: _toggleControls,
-                                  onInteraction: null,
-                                  onRetryRequested: _retry,
-                                );
-                              },
                             ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: MouseRegion(
-                      onEnter: (_) => _setControlsHovering(true),
-                      onExit: (_) => _setControlsHovering(false),
-                      child: IgnorePointer(
-                        ignoring: !controlsVisible,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 180),
-                          opacity: controlsVisible ? 1 : 0,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: MouseRegion(
+                          onEnter: (_) => _setControlsHovering(true),
+                          onExit: (_) => _setControlsHovering(false),
+                          child: IgnorePointer(
+                            ignoring: !controlsVisible,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 180),
+                              opacity: controlsVisible ? 1 : 0,
+                              child: SafeArea(
+                                top: false,
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    0,
+                                    12,
+                                    12,
+                                  ),
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xB3101217),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(
+                                        color: const Color(0xFF252B36),
+                                        width: 0.5,
+                                      ),
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          _ReaderBarButton(
+                                            tooltip: 'Previous page',
+                                            icon: Icons.chevron_left_rounded,
+                                            onPressed:
+                                                _canGoReadingBackward(pageCount)
+                                                ? () => _goReadingBackward(
+                                                    document,
+                                                  )
+                                                : null,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: SliderTheme(
+                                              data: SliderTheme.of(context)
+                                                  .copyWith(
+                                                    trackHeight: 3,
+                                                    overlayShape:
+                                                        SliderComponentShape
+                                                            .noOverlay,
+                                                    activeTrackColor:
+                                                        AppTheme.crimson,
+                                                    inactiveTrackColor:
+                                                        Colors.white24,
+                                                    thumbColor: Colors.white,
+                                                  ),
+                                              child: Slider(
+                                                min: 0,
+                                                max: (pageCount - 1).toDouble(),
+                                                value: _currentPage
+                                                    .clamp(0, pageCount - 1)
+                                                    .toDouble(),
+                                                onChanged: (value) {
+                                                  _jumpToPage(
+                                                    value.round(),
+                                                    document,
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            '${_currentPage + 1} / $pageCount',
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: Colors.white70,
+                                                ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          _ReaderZoomControl(
+                                            zoomLevel: _zoomLevel,
+                                            onZoomOut: () =>
+                                                _adjustZoomLevel(-0.1),
+                                            onZoomReset: _resetZoomLevel,
+                                            onZoomIn: () =>
+                                                _adjustZoomLevel(0.1),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          _ReaderBarButton(
+                                            tooltip: 'Next page',
+                                            icon: Icons.chevron_right_rounded,
+                                            onPressed:
+                                                _canGoReadingForward(pageCount)
+                                                ? () => _goReadingForward(
+                                                    document,
+                                                  )
+                                                : null,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (_showSettingsPopover)
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _closeSettingsPopover,
+                            child: const SizedBox.expand(),
+                          ),
+                        ),
+                      if (_showSettingsPopover)
+                        Positioned(
+                          top: 76,
+                          right: 16,
                           child: SafeArea(
                             bottom: false,
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xB3101217),
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                    color: const Color(0xFF252B36),
-                                    width: 0.5,
+                            child: _ReaderSettingsPopover(
+                              fitMode: _fitMode,
+                              continuousScroll: _continuousScroll,
+                              rightToLeft: _rightToLeft,
+                              autoHideChrome: _autoHideChrome,
+                              onFitModeChanged: (mode) {
+                                setState(() {
+                                  _fitMode = mode;
+                                  _zoomLevel = 1.0;
+                                });
+                                unawaited(
+                                  SettingsModel.instance
+                                      .updateReaderPreferences(
+                                        fitMode: mode.name,
+                                      ),
+                                );
+                              },
+                              onContinuousScrollChanged: _setContinuousScroll,
+                              onRightToLeftChanged: (value) {
+                                setState(() {
+                                  _rightToLeft = value;
+                                });
+                                unawaited(
+                                  SettingsModel.instance
+                                      .updateReaderPreferences(
+                                        rightToLeft: value,
+                                      ),
+                                );
+                              },
+                              onAutoHideChanged: (value) {
+                                setState(() {
+                                  _autoHideChrome = value;
+                                });
+                                unawaited(
+                                  SettingsModel.instance
+                                      .updateReaderPreferences(
+                                        autoHideChrome: value,
+                                      ),
+                                );
+                                if (value) {
+                                  _scheduleControlsHide();
+                                } else {
+                                  _chromeHideTimer?.cancel();
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          ignoring: !archiveBoundaryVisible,
+                          child: AnimatedOpacity(
+                            duration: _overlayAnimationDuration,
+                            opacity: archiveBoundaryVisible ? 1 : 0,
+                            child: Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: _clearArchiveBoundaryState,
+                                    child: const ColoredBox(
+                                      color: Color(0x66000000),
+                                    ),
                                   ),
                                 ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 8,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      _ReaderBarButton(
-                                        tooltip: 'Exit reader',
-                                        icon: Icons.arrow_back_rounded,
-                                        onPressed: _exitReader,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              document.archive.title,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: theme.textTheme.titleMedium
-                                                  ?.copyWith(
-                                                    color: Colors.white,
-                                                  ),
-                                            ),
-                                            Text(
-                                              '${_currentPage + 1} / $pageCount',
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                    color: Colors.white70,
-                                                  ),
-                                            ),
-                                          ],
+                                SafeArea(
+                                  child: Align(
+                                    alignment:
+                                        _visibleArchiveBoundary ==
+                                            _ArchiveBoundary.beginning
+                                        ? Alignment.topCenter
+                                        : Alignment.bottomCenter,
+                                    child: AnimatedSlide(
+                                      duration: _overlayAnimationDuration,
+                                      curve: Curves.easeOutCubic,
+                                      offset: archiveBoundaryVisible
+                                          ? Offset.zero
+                                          : _visibleArchiveBoundary ==
+                                                _ArchiveBoundary.beginning
+                                          ? const Offset(0, -0.18)
+                                          : const Offset(0, 0.18),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(20),
+                                        child: _ArchiveBoundaryCard(
+                                          archive: document.archive,
+                                          boundary:
+                                              _visibleArchiveBoundary ??
+                                              _ArchiveBoundary.end,
+                                          onDismiss: _clearArchiveBoundaryState,
+                                          onBackToLibrary:
+                                              _handleArchiveBoundaryBackToLibrary,
                                         ),
                                       ),
-                                      const SizedBox(width: 8),
-                                      _ReaderBarButton(
-                                        tooltip: 'Reader settings',
-                                        icon: Icons.tune_rounded,
-                                        onPressed: _toggleSettingsPopover,
-                                        active: _showSettingsPopover,
-                                      ),
-                                      if (_supportsWindowFullscreen) ...[
-                                        const SizedBox(width: 4),
-                                        _ReaderBarButton(
-                                          tooltip: _isFullscreen
-                                              ? 'Exit fullscreen'
-                                              : 'Fullscreen',
-                                          icon: _isFullscreen
-                                              ? Icons.fullscreen_exit_rounded
-                                              : Icons.fullscreen_rounded,
-                                          onPressed: _toggleFullscreen,
-                                          active: _isFullscreen,
-                                        ),
-                                      ],
-                                      const SizedBox(width: 4),
-                                      _ReaderBarButton(
-                                        tooltip: 'Reload pages',
-                                        icon: Icons.refresh_rounded,
-                                        onPressed: _retry,
-                                      ),
-                                    ],
+                                    ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: MouseRegion(
-                      onEnter: (_) => _setControlsHovering(true),
-                      onExit: (_) => _setControlsHovering(false),
-                      child: IgnorePointer(
-                        ignoring: !controlsVisible,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 180),
-                          opacity: controlsVisible ? 1 : 0,
-                          child: SafeArea(
-                            top: false,
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xB3101217),
-                                  borderRadius: BorderRadius.circular(18),
-                                  border: Border.all(
-                                    color: const Color(0xFF252B36),
-                                    width: 0.5,
-                                  ),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      _ReaderBarButton(
-                                        tooltip: 'Previous page',
-                                        icon: Icons.chevron_left_rounded,
-                                        onPressed:
-                                            _canGoReadingBackward(pageCount)
-                                            ? () => _goReadingBackward(document)
-                                            : null,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: SliderTheme(
-                                          data: SliderTheme.of(context)
-                                              .copyWith(
-                                                trackHeight: 3,
-                                                overlayShape:
-                                                    SliderComponentShape
-                                                        .noOverlay,
-                                                activeTrackColor:
-                                                    AppTheme.crimson,
-                                                inactiveTrackColor:
-                                                    Colors.white24,
-                                                thumbColor: Colors.white,
-                                              ),
-                                          child: Slider(
-                                            min: 0,
-                                            max: (pageCount - 1).toDouble(),
-                                            value: _currentPage
-                                                .clamp(0, pageCount - 1)
-                                                .toDouble(),
-                                            onChanged: (value) {
-                                              _jumpToPage(
-                                                value.round(),
-                                                document,
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        '${_currentPage + 1} / $pageCount',
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(color: Colors.white70),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      _ReaderZoomControl(
-                                        zoomLevel: _zoomLevel,
-                                        onZoomOut: () => _adjustZoomLevel(-0.1),
-                                        onZoomReset: _resetZoomLevel,
-                                        onZoomIn: () => _adjustZoomLevel(0.1),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      _ReaderBarButton(
-                                        tooltip: 'Next page',
-                                        icon: Icons.chevron_right_rounded,
-                                        onPressed:
-                                            _canGoReadingForward(pageCount)
-                                            ? () => _goReadingForward(document)
-                                            : null,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (_showSettingsPopover)
-                    Positioned.fill(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: _closeSettingsPopover,
-                        child: const SizedBox.expand(),
-                      ),
-                    ),
-                  if (_showSettingsPopover)
-                    Positioned(
-                      top: 76,
-                      right: 16,
-                      child: SafeArea(
-                        bottom: false,
-                        child: _ReaderSettingsPopover(
-                          fitMode: _fitMode,
-                          continuousScroll: _continuousScroll,
-                          rightToLeft: _rightToLeft,
-                          autoHideChrome: _autoHideChrome,
-                          onFitModeChanged: (mode) {
-                            setState(() {
-                              _fitMode = mode;
-                              _zoomLevel = 1.0;
-                            });
-                            unawaited(
-                              SettingsModel.instance.updateReaderPreferences(
-                                fitMode: mode.name,
-                              ),
-                            );
-                          },
-                          onContinuousScrollChanged: _setContinuousScroll,
-                          onRightToLeftChanged: (value) {
-                            setState(() {
-                              _rightToLeft = value;
-                            });
-                            unawaited(
-                              SettingsModel.instance.updateReaderPreferences(
-                                rightToLeft: value,
-                              ),
-                            );
-                          },
-                          onAutoHideChanged: (value) {
-                            setState(() {
-                              _autoHideChrome = value;
-                            });
-                            unawaited(
-                              SettingsModel.instance.updateReaderPreferences(
-                                autoHideChrome: value,
-                              ),
-                            );
-                            if (value) {
-                              _scheduleControlsHide();
-                            } else {
-                              _chromeHideTimer?.cancel();
-                            }
-                          },
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
             );
           },
@@ -1479,6 +1694,115 @@ class _ReaderDocument {
   final Archive archive;
   final List<String> pageUrls;
   final int initialPage;
+}
+
+class _ArchiveBoundaryCard extends StatelessWidget {
+  const _ArchiveBoundaryCard({
+    required this.archive,
+    required this.boundary,
+    required this.onDismiss,
+    required this.onBackToLibrary,
+  });
+
+  final Archive archive;
+  final _ArchiveBoundary boundary;
+  final VoidCallback onDismiss;
+  final VoidCallback onBackToLibrary;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isBeginning = boundary == _ArchiveBoundary.beginning;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {},
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xEE101217),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFF252B36), width: 0.5),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x44000000),
+                blurRadius: 28,
+                offset: Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 88,
+                  height: 124,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: ArchiveThumbnail(archive: archive),
+                  ),
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        archive.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        isBeginning
+                            ? "You're at the beginning"
+                            : "You've reached the end",
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        isBeginning
+                            ? 'There are no previous pages in this archive.'
+                            : 'There are no more pages in this archive.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          FilledButton(
+                            onPressed: onBackToLibrary,
+                            child: const Text('Back to Library'),
+                          ),
+                          TextButton(
+                            onPressed: onDismiss,
+                            child: const Text('Dismiss'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ReaderBarButton extends StatefulWidget {
