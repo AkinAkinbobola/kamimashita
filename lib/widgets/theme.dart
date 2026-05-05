@@ -17,6 +17,14 @@ class AppTheme {
 
   static ThemeData get crimsonInk {
     final baseText = GoogleFonts.interTextTheme(ThemeData.dark().textTheme);
+    final clickableMouseCursor = WidgetStateProperty.resolveWith<MouseCursor>((
+      states,
+    ) {
+      if (states.contains(WidgetState.disabled)) {
+        return SystemMouseCursors.basic;
+      }
+      return SystemMouseCursors.click;
+    });
 
     return ThemeData(
       useMaterial3: false,
@@ -39,8 +47,14 @@ class AppTheme {
           fontSize: 15,
           fontWeight: FontWeight.w500,
         ),
-        bodyLarge: baseText.bodyLarge?.copyWith(color: textPrimary, fontSize: 14),
-        bodyMedium: baseText.bodyMedium?.copyWith(color: textSecondary, fontSize: 13),
+        bodyLarge: baseText.bodyLarge?.copyWith(
+          color: textPrimary,
+          fontSize: 14,
+        ),
+        bodyMedium: baseText.bodyMedium?.copyWith(
+          color: textSecondary,
+          fontSize: 13,
+        ),
         bodySmall: baseText.bodySmall?.copyWith(color: textMuted, fontSize: 11),
         labelSmall: baseText.labelSmall?.copyWith(
           color: textMuted,
@@ -102,9 +116,7 @@ class AppTheme {
           letterSpacing: -0.3,
         ),
         iconTheme: const IconThemeData(color: textSecondary, size: 20),
-        shape: const Border(
-          bottom: BorderSide(color: border, width: 0.5),
-        ),
+        shape: const Border(bottom: BorderSide(color: border, width: 0.5)),
       ),
       popupMenuTheme: const PopupMenuThemeData(
         color: surfaceRaised,
@@ -118,7 +130,9 @@ class AppTheme {
         menuStyle: MenuStyle(
           backgroundColor: WidgetStatePropertyAll(surfaceRaised),
           surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
-          side: WidgetStatePropertyAll(BorderSide(color: borderSubtle, width: 0.5)),
+          side: WidgetStatePropertyAll(
+            BorderSide(color: borderSubtle, width: 0.5),
+          ),
           shape: WidgetStatePropertyAll(
             RoundedRectangleBorder(
               borderRadius: BorderRadius.all(Radius.circular(6)),
@@ -130,6 +144,21 @@ class AppTheme {
         thumbColor: WidgetStatePropertyAll(textMuted),
         thickness: WidgetStatePropertyAll(3),
         radius: Radius.circular(2),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: ButtonStyle(mouseCursor: clickableMouseCursor),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ButtonStyle(mouseCursor: clickableMouseCursor),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: ButtonStyle(mouseCursor: clickableMouseCursor),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: ButtonStyle(mouseCursor: clickableMouseCursor),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: ButtonStyle(mouseCursor: clickableMouseCursor),
       ),
     );
   }

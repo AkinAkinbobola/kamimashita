@@ -1559,10 +1559,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                       ),
                       if (_showSettingsPopover)
                         Positioned.fill(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: _closeSettingsPopover,
-                            child: const SizedBox.expand(),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _closeSettingsPopover,
+                              child: const SizedBox.expand(),
+                            ),
                           ),
                         ),
                       if (_showSettingsPopover)
@@ -1628,11 +1631,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                             child: Stack(
                               children: [
                                 Positioned.fill(
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: _clearArchiveBoundaryState,
-                                    child: const ColoredBox(
-                                      color: Color(0x66000000),
+                                  child: MouseRegion(
+                                    cursor: SystemMouseCursors.click,
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onTap: _clearArchiveBoundaryState,
+                                      child: const ColoredBox(
+                                        color: Color(0x66000000),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -2102,16 +2108,22 @@ class _ReaderZoomControl extends StatelessWidget {
               label: '-',
               onPressed: onZoomOut,
             ),
-            GestureDetector(
-              onTap: onZoomReset,
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                child: Text(
-                  '$percentage%',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w600,
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: onZoomReset,
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  child: Text(
+                    '$percentage%',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),

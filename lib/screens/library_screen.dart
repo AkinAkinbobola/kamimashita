@@ -26,7 +26,8 @@ class LibraryScreen extends ConsumerStatefulWidget {
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListener {
+class _LibraryScreenState extends ConsumerState<LibraryScreen>
+    with WindowListener {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
@@ -79,15 +80,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     if (_isDesktopWindowControlsEnabled) {
       windowManager.addListener(this);
     }
-    _libraryRefreshSubscription = ref.listenManual<Object>(
-      libraryProvider,
-      (previous, next) {
-        if (!mounted || !SettingsModel.instance.isValid) {
-          return;
-        }
-        _reloadLibrary();
-      },
-    );
+    _libraryRefreshSubscription = ref.listenManual<Object>(libraryProvider, (
+      previous,
+      next,
+    ) {
+      if (!mounted || !SettingsModel.instance.isValid) {
+        return;
+      }
+      _reloadLibrary();
+    });
     SettingsModel.instance.addListener(_onSettingsChanged);
     _controller.addListener(_onQueryChanged);
     _scrollController.addListener(_onScroll);
@@ -97,7 +98,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       _reloadLibrary();
     });
   }
-
 
   @override
   void onWindowFocus() {
@@ -176,7 +176,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
   }
 
   void _onScroll() {
-    if (!_scrollController.hasClients || _isInitialLoading || _isLoadingMore || !_hasMore) {
+    if (!_scrollController.hasClients ||
+        _isInitialLoading ||
+        _isLoadingMore ||
+        !_hasMore) {
       return;
     }
     final position = _scrollController.position;
@@ -208,7 +211,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       return KeyEventResult.handled;
     }
 
-    if (event.logicalKey == LogicalKeyboardKey.enter || event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+    if (event.logicalKey == LogicalKeyboardKey.enter ||
+        event.logicalKey == LogicalKeyboardKey.numpadEnter) {
       final highlightedSuggestion = _highlightedSuggestion;
       if (highlightedSuggestion != null) {
         _applySuggestion(highlightedSuggestion);
@@ -238,7 +242,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       if (_highlightedSuggestionIndex == -1) {
         _highlightedSuggestionIndex = offset > 0 ? 0 : _suggestions.length - 1;
       } else {
-        _highlightedSuggestionIndex = (_highlightedSuggestionIndex + offset) % _suggestions.length;
+        _highlightedSuggestionIndex =
+            (_highlightedSuggestionIndex + offset) % _suggestions.length;
         if (_highlightedSuggestionIndex < 0) {
           _highlightedSuggestionIndex += _suggestions.length;
         }
@@ -247,7 +252,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
   }
 
   _SearchSuggestion? get _highlightedSuggestion {
-    if (_highlightedSuggestionIndex < 0 || _highlightedSuggestionIndex >= _suggestions.length) {
+    if (_highlightedSuggestionIndex < 0 ||
+        _highlightedSuggestionIndex >= _suggestions.length) {
       return null;
     }
     return _suggestions[_highlightedSuggestionIndex];
@@ -347,13 +353,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
         return;
       }
 
-      final seenIds = _items.map((archive) => archive.id).where((id) => id.isNotEmpty).toSet();
-      final newItems = page.items.where((archive) {
-        if (archive.id.isEmpty) {
-          return true;
-        }
-        return !seenIds.contains(archive.id);
-      }).toList(growable: false);
+      final seenIds = _items
+          .map((archive) => archive.id)
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      final newItems = page.items
+          .where((archive) {
+            if (archive.id.isEmpty) {
+              return true;
+            }
+            return !seenIds.contains(archive.id);
+          })
+          .toList(growable: false);
 
       setState(() {
         _items = fromReload ? newItems : [..._items, ...newItems];
@@ -401,7 +412,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       return;
     }
 
-    final cacheKey = '${settings.serverUrl}|${LanraragiClient.normalizeApiKey(settings.apiKey)}';
+    final cacheKey =
+        '${settings.serverUrl}|${LanraragiClient.normalizeApiKey(settings.apiKey)}';
     if (!force && _categoriesCacheKey == cacheKey && _categories.isNotEmpty) {
       return;
     }
@@ -414,7 +426,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
         return;
       }
 
-      final selectedExists = _selectedCategoryId == null || categories.any((category) => category.id == _selectedCategoryId);
+      final selectedExists =
+          _selectedCategoryId == null ||
+          categories.any((category) => category.id == _selectedCategoryId);
       setState(() {
         _categories = categories;
         _categoriesCacheKey = cacheKey;
@@ -451,28 +465,28 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        dismissDirection: DismissDirection.down,
-        duration: const Duration(seconds: 2),
-        elevation: 0,
-        margin: EdgeInsets.only(
-          left: computedLeftMargin < 16 ? 16 : computedLeftMargin,
-          right: rightMargin,
-          bottom: bottomMargin,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        backgroundColor: const Color(0xFF1A1A1A),
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-        content: Text(
-          message,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.w500,
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          dismissDirection: DismissDirection.down,
+          duration: const Duration(seconds: 2),
+          elevation: 0,
+          margin: EdgeInsets.only(
+            left: computedLeftMargin < 16 ? 16 : computedLeftMargin,
+            right: rightMargin,
+            bottom: bottomMargin,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          backgroundColor: const Color(0xFF1A1A1A),
+          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          content: Text(
+            message,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
-      ),
-    );
+      );
   }
 
   Future<void> _reloadSelectedArchiveCategoriesIfNeeded() async {
@@ -487,7 +501,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
   }
 
   Future<void> _showCreateCategoryDialog() async {
-    final previousCategoryIds = _categories.map((category) => category.id).toSet();
+    final previousCategoryIds = _categories
+        .map((category) => category.id)
+        .toSet();
     final result = await showDialog<_CategoryDialogResult>(
       context: context,
       builder: (context) => const _CategoryDialog(
@@ -515,7 +531,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       if (!mounted) {
         return;
       }
-      final createdCategory = _categories
+      final createdCategory =
+          _categories
               .where((category) => !previousCategoryIds.contains(category.id))
               .firstOrNull ??
           _categories
@@ -602,7 +619,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       }
       final wasSelected = _selectedCategoryId == category.id;
       setState(() {
-        _categories = _categories.where((entry) => entry.id != category.id).toList(growable: false);
+        _categories = _categories
+            .where((entry) => entry.id != category.id)
+            .toList(growable: false);
         _selectedArchiveCategories = _selectedArchiveCategories
             .where((entry) => entry.id != category.id)
             .toList(growable: false);
@@ -629,8 +648,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     }
 
     try {
-      final categories = await LanraragiClient(settings.serverUrl, settings.apiKey)
-          .getArchiveCategories(archiveId);
+      final categories = await LanraragiClient(
+        settings.serverUrl,
+        settings.apiKey,
+      ).getArchiveCategories(archiveId);
       if (!mounted || _selectedArchive?.id != archiveId) {
         return;
       }
@@ -647,8 +668,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       setState(() {
         _selectedArchiveCategories = const [];
         _isLoadingSelectedArchiveCategories = false;
-        _selectedArchiveCategoryMessage =
-            error.toString().replaceFirst('LanraragiException: ', '');
+        _selectedArchiveCategoryMessage = error.toString().replaceFirst(
+          'LanraragiException: ',
+          '',
+        );
         _selectedArchiveCategoryMessageIsError = true;
       });
     }
@@ -656,11 +679,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
 
   Future<void> _addSelectedArchiveToCategory(String categoryId) async {
     final archive = _selectedArchive;
-    if (archive == null || categoryId.isEmpty || _isUpdatingSelectedArchiveCategories) {
+    if (archive == null ||
+        categoryId.isEmpty ||
+        _isUpdatingSelectedArchiveCategories) {
       return;
     }
 
-    final category = _categories.where((entry) => entry.id == categoryId).firstOrNull;
+    final category = _categories
+        .where((entry) => entry.id == categoryId)
+        .firstOrNull;
     if (category == null || category.isDynamic) {
       return;
     }
@@ -677,8 +704,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     });
 
     try {
-      await LanraragiClient(settings.serverUrl, settings.apiKey)
-          .addArchiveToCategory(categoryId, archive.id);
+      await LanraragiClient(
+        settings.serverUrl,
+        settings.apiKey,
+      ).addArchiveToCategory(categoryId, archive.id);
       await _loadSelectedArchiveCategories(archive.id);
       if (mounted) {
         ref.invalidate(libraryProvider);
@@ -686,8 +715,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     } catch (error) {
       if (mounted && _selectedArchive?.id == archive.id) {
         setState(() {
-          _selectedArchiveCategoryMessage =
-              error.toString().replaceFirst('LanraragiException: ', '');
+          _selectedArchiveCategoryMessage = error.toString().replaceFirst(
+            'LanraragiException: ',
+            '',
+          );
           _selectedArchiveCategoryMessageIsError = true;
         });
       }
@@ -702,7 +733,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
 
   Future<void> _removeSelectedArchiveFromCategory(String categoryId) async {
     final archive = _selectedArchive;
-    if (archive == null || categoryId.isEmpty || _isUpdatingSelectedArchiveCategories) {
+    if (archive == null ||
+        categoryId.isEmpty ||
+        _isUpdatingSelectedArchiveCategories) {
       return;
     }
 
@@ -718,8 +751,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     });
 
     try {
-      await LanraragiClient(settings.serverUrl, settings.apiKey)
-          .removeArchiveFromCategory(categoryId, archive.id);
+      await LanraragiClient(
+        settings.serverUrl,
+        settings.apiKey,
+      ).removeArchiveFromCategory(categoryId, archive.id);
       await _loadSelectedArchiveCategories(archive.id);
       if (mounted) {
         ref.invalidate(libraryProvider);
@@ -727,8 +762,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     } catch (error) {
       if (mounted && _selectedArchive?.id == archive.id) {
         setState(() {
-          _selectedArchiveCategoryMessage =
-              error.toString().replaceFirst('LanraragiException: ', '');
+          _selectedArchiveCategoryMessage = error.toString().replaceFirst(
+            'LanraragiException: ',
+            '',
+          );
           _selectedArchiveCategoryMessageIsError = true;
         });
       }
@@ -753,7 +790,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
 
     final normalizedBase = _normalizeThumbnailBase(settings.serverUrl);
     final headers = settings.authHeader();
-    final candidates = archives.where((archive) => archive.id.isNotEmpty).take(6).toList(growable: false);
+    final candidates = archives
+        .where((archive) => archive.id.isNotEmpty)
+        .take(6)
+        .toList(growable: false);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
@@ -793,20 +833,26 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     }
 
     try {
-      final archive = _findLoadedArchive(entry.archiveId) ??
-          await LanraragiClient(settings.serverUrl, settings.apiKey).getArchive(entry.archiveId);
+      final archive =
+          _findLoadedArchive(entry.archiveId) ??
+          await LanraragiClient(
+            settings.serverUrl,
+            settings.apiKey,
+          ).getArchive(entry.archiveId);
       if (!mounted) {
         return;
       }
 
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ReaderScreen(
-            archive: archive,
-            initialPage: entry.currentPage,
-          ),
-        ),
-      ).then((_) => _refreshOnDeck());
+      Navigator.of(context)
+          .push(
+            MaterialPageRoute(
+              builder: (_) => ReaderScreen(
+                archive: archive,
+                initialPage: entry.currentPage,
+              ),
+            ),
+          )
+          .then((_) => _refreshOnDeck());
     } catch (error) {
       if (!mounted) {
         return;
@@ -822,12 +868,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
   }
 
   void _applyLocalOnDeckFallback() {
-    final entries = SettingsModel.instance.onDeckEntries
-        .toList(growable: false);
+    final entries = SettingsModel.instance.onDeckEntries.toList(
+      growable: false,
+    );
     setState(() {
       _sidebarOnDeckEntries = entries;
       _isLoadingOnDeck = false;
-      _onDeckMessage = entries.isEmpty ? AppStrings.noRecentInProgressArchives : null;
+      _onDeckMessage = entries.isEmpty
+          ? AppStrings.noRecentInProgressArchives
+          : null;
       _onDeckMessageIsError = false;
     });
   }
@@ -850,20 +899,28 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     });
 
     try {
-      final archives = await LanraragiClient(settings.serverUrl, settings.apiKey).getOnDeckArchives();
+      final archives = await LanraragiClient(
+        settings.serverUrl,
+        settings.apiKey,
+      ).getOnDeckArchives();
       if (!mounted) {
         return;
       }
 
       final entries = archives
-          .where((archive) => archive.id.isNotEmpty && archive.title.trim().isNotEmpty)
+          .where(
+            (archive) =>
+                archive.id.isNotEmpty && archive.title.trim().isNotEmpty,
+          )
           .map(OnDeckEntry.fromArchive)
           .toList(growable: false);
 
       setState(() {
         _sidebarOnDeckEntries = entries;
         _isLoadingOnDeck = false;
-        _onDeckMessage = entries.isEmpty ? AppStrings.noRecentInProgressArchives : null;
+        _onDeckMessage = entries.isEmpty
+            ? AppStrings.noRecentInProgressArchives
+            : null;
         _onDeckMessageIsError = false;
       });
     } catch (error) {
@@ -874,7 +931,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       setState(() {
         _sidebarOnDeckEntries = const <OnDeckEntry>[];
         _isLoadingOnDeck = false;
-        _onDeckMessage = error.toString().replaceFirst('LanraragiException: ', '');
+        _onDeckMessage = error.toString().replaceFirst(
+          'LanraragiException: ',
+          '',
+        );
         _onDeckMessageIsError = true;
       });
     }
@@ -905,15 +965,20 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     });
 
     try {
-      final pickedArchive = await LanraragiClient(settings.serverUrl, settings.apiKey)
-          .getRandomArchive();
+      final pickedArchive = await LanraragiClient(
+        settings.serverUrl,
+        settings.apiKey,
+      ).getRandomArchive();
 
       if (!mounted) {
         return;
       }
 
       if (pickedArchive == null) {
-        _setRandomPickMessage(AppStrings.noMatchingRandomArchive, isError: false);
+        _setRandomPickMessage(
+          AppStrings.noMatchingRandomArchive,
+          isError: false,
+        );
         return;
       }
 
@@ -962,7 +1027,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       return;
     }
 
-    final cacheKey = '${settings.serverUrl}|${LanraragiClient.normalizeApiKey(settings.apiKey)}';
+    final cacheKey =
+        '${settings.serverUrl}|${LanraragiClient.normalizeApiKey(settings.apiKey)}';
     if (_tagStatsCacheKey == cacheKey && _tagStats.isNotEmpty) {
       return;
     }
@@ -994,7 +1060,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
   void _updateSuggestions() {
     final activeToken = _activeToken();
     if (!_focusNode.hasFocus || activeToken.isEmpty) {
-      if ((_suggestions.isNotEmpty || _highlightedSuggestionIndex != -1) && mounted) {
+      if ((_suggestions.isNotEmpty || _highlightedSuggestionIndex != -1) &&
+          mounted) {
         setState(() {
           _suggestions = const [];
           _highlightedSuggestionIndex = -1;
@@ -1030,7 +1097,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     for (final archive in _items) {
       for (final term in _titleTerms(archive.title)) {
         if (term.contains(lowerToken)) {
-          final suggestion = _SearchSuggestion(label: term, filterValue: term, kind: 'title', weight: 0, priority: 1);
+          final suggestion = _SearchSuggestion(
+            label: term,
+            filterValue: term,
+            kind: 'title',
+            weight: 0,
+            priority: 1,
+          );
           entries.putIfAbsent(suggestion.label.toLowerCase(), () => suggestion);
         }
       }
@@ -1075,7 +1148,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     if (range.isCollapsed) {
       return '';
     }
-    return query.substring(range.start, range.end).replaceAll('"', '').replaceAll(r'$', '').trim();
+    return query
+        .substring(range.start, range.end)
+        .replaceAll('"', '')
+        .replaceAll(r'$', '')
+        .trim();
   }
 
   void _applySuggestion(_SearchSuggestion suggestion) {
@@ -1083,12 +1160,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     final range = _activeTokenRange(currentText);
     final replacement = suggestion.filterValue + r'$, ';
     final prefix = currentText.substring(0, range.start);
-    final suffix = currentText.substring(range.end).replaceFirst(RegExp(r'^[\s,-]+'), '');
+    final suffix = currentText
+        .substring(range.end)
+        .replaceFirst(RegExp(r'^[\s,-]+'), '');
     final nextText = '$prefix$replacement$suffix';
 
     _controller.value = TextEditingValue(
       text: nextText,
-      selection: TextSelection.collapsed(offset: prefix.length + replacement.length),
+      selection: TextSelection.collapsed(
+        offset: prefix.length + replacement.length,
+      ),
     );
 
     setState(() {
@@ -1149,7 +1230,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
   }
 
   bool _isTokenBoundary(String character) {
-    return character == ',' || character == '-' || RegExp(r'\s').hasMatch(character);
+    return character == ',' ||
+        character == '-' ||
+        RegExp(r'\s').hasMatch(character);
   }
 
   bool _sameSuggestions(List<_SearchSuggestion> a, List<_SearchSuggestion> b) {
@@ -1199,11 +1282,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     _reloadLibrary();
   }
 
-  List<LanraragiCategory> get _staticCategories =>
-      _categories.where((category) => category.isStatic).toList(growable: false);
+  List<LanraragiCategory> get _staticCategories => _categories
+      .where((category) => category.isStatic)
+      .toList(growable: false);
 
-  List<LanraragiCategory> get _dynamicCategories =>
-      _categories.where((category) => category.isDynamic).toList(growable: false);
+  List<LanraragiCategory> get _dynamicCategories => _categories
+      .where((category) => category.isDynamic)
+      .toList(growable: false);
 
   int get _activeFilterCount {
     var count = 0;
@@ -1216,7 +1301,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     if (_hideCompleted) {
       count += 1;
     }
-    if (_dynamicCategories.any((category) => category.id == _selectedCategoryId)) {
+    if (_dynamicCategories.any(
+      (category) => category.id == _selectedCategoryId,
+    )) {
       count += 1;
     }
     return count;
@@ -1288,7 +1375,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     final grouped = <String, List<String>>{};
     for (final rawTag in archive.parsedTags) {
       final separatorIndex = rawTag.indexOf(':');
-      final namespace = separatorIndex == -1 ? 'tag' : rawTag.substring(0, separatorIndex).trim();
+      final namespace = separatorIndex == -1
+          ? 'tag'
+          : rawTag.substring(0, separatorIndex).trim();
       final normalizedNamespace = namespace.isEmpty ? 'tag' : namespace;
       if (normalizedNamespace.toLowerCase() == 'source') {
         continue;
@@ -1296,7 +1385,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       grouped.putIfAbsent(normalizedNamespace, () => <String>[]).add(rawTag);
     }
 
-    const preferredOrder = ['artist', 'group', 'series', 'parody', 'character', 'language', 'tag'];
+    const preferredOrder = [
+      'artist',
+      'group',
+      'series',
+      'parody',
+      'character',
+      'language',
+      'tag',
+    ];
     final namespaces = grouped.keys.toList()
       ..sort((a, b) {
         final aIndex = preferredOrder.indexOf(a);
@@ -1310,13 +1407,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       });
 
     return namespaces
-        .map((namespace) => _GroupedTagNamespace(namespace: namespace, tags: List.unmodifiable(grouped[namespace]!)))
+        .map(
+          (namespace) => _GroupedTagNamespace(
+            namespace: namespace,
+            tags: List.unmodifiable(grouped[namespace]!),
+          ),
+        )
         .toList(growable: false);
   }
 
   Widget _buildToolbar() {
     final namespaceOptionsById = <String, LibrarySortOption>{
-      for (final option in LibrarySortOption.defaultNamespaceSortOptions) option.id: option,
+      for (final option in LibrarySortOption.defaultNamespaceSortOptions)
+        option.id: option,
     };
     for (final stat in _tagStats) {
       final separatorIndex = stat.value.indexOf(':');
@@ -1380,21 +1483,32 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
               onPressed: _toggleSortOrder,
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(0, 36),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 0,
+                ),
                 side: const BorderSide(color: AppTheme.border, width: 0.5),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
                 foregroundColor: AppTheme.textSecondary,
               ),
-              icon: Icon(_sortOrder == 'asc' ? Icons.arrow_upward : Icons.arrow_downward, size: 14),
+              icon: Icon(
+                _sortOrder == 'asc' ? Icons.arrow_upward : Icons.arrow_downward,
+                size: 14,
+              ),
               label: Text(
-                _sortOrder == 'asc' ? AppStrings.sortAscending : AppStrings.sortDescending,
+                _sortOrder == 'asc'
+                    ? AppStrings.sortAscending
+                    : AppStrings.sortDescending,
                 style: compactFieldStyle,
               ),
             ),
             const SizedBox(width: 8),
             _CategoryFilterMenu(
               width: 190,
-              label: _staticCategories
+              label:
+                  _staticCategories
                       .where((category) => category.id == _selectedCategoryId)
                       .map((category) => category.name)
                       .cast<String?>()
@@ -1451,7 +1565,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       return 1;
     }
 
-    var columns = ((availableWidth + spacing) / (targetCardWidth + spacing)).floor().clamp(1, 8);
+    var columns = ((availableWidth + spacing) / (targetCardWidth + spacing))
+        .floor()
+        .clamp(1, 8);
     while (columns > 1) {
       final itemWidth = (availableWidth - (columns - 1) * spacing) / columns;
       if (itemWidth >= minCardWidth) {
@@ -1471,7 +1587,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
       return _LibraryLoadErrorView(
         message: _loadError.toString().replaceFirst('LanraragiException: ', ''),
         onRetry: _loadLibrary,
-        onOpenSettings: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+        onOpenSettings: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
       );
     }
 
@@ -1521,14 +1639,20 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
               children: [
                 Expanded(
                   child: Text(
-                    _loadMoreError.toString().replaceFirst('LanraragiException: ', ''),
+                    _loadMoreError.toString().replaceFirst(
+                      'LanraragiException: ',
+                      '',
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                   ),
                 ),
                 const SizedBox(width: 12),
-                TextButton(onPressed: _loadMore, child: const Text(AppStrings.retry)),
+                TextButton(
+                  onPressed: _loadMore,
+                  child: const Text(AppStrings.retry),
+                ),
               ],
             ),
           ),
@@ -1542,7 +1666,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
     final hasClient = settings.isValid;
 
     void openSettings() {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+      Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
     }
 
     return Scaffold(
@@ -1556,7 +1682,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
           return Drawer(
             width: 244,
             backgroundColor: const Color(0xFF1A1A1A),
-            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.zero,
+            ),
             child: _LibrarySidebar(
               compact: false,
               onDeckEntries: _sidebarOnDeckEntries,
@@ -1597,8 +1725,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
           const fullSidebarWidth = 220.0;
           const compactSidebarWidth = 68.0;
           final useDrawerSidebar = constraints.maxWidth < 780;
-          final useCompactSidebar = !useDrawerSidebar && constraints.maxWidth < 1120;
-          final sidebarWidth = useDrawerSidebar ? 0.0 : (useCompactSidebar ? compactSidebarWidth : fullSidebarWidth);
+          final useCompactSidebar =
+              !useDrawerSidebar && constraints.maxWidth < 1120;
+          final sidebarWidth = useDrawerSidebar
+              ? 0.0
+              : (useCompactSidebar ? compactSidebarWidth : fullSidebarWidth);
 
           return Row(
             children: [
@@ -1622,9 +1753,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
               Expanded(
                 child: LayoutBuilder(
                   builder: (context, mainConstraints) {
-                    final drawerWidth = mainConstraints.maxWidth.clamp(0.0, 380.0).toDouble();
+                    final drawerWidth = mainConstraints.maxWidth
+                        .clamp(0.0, 380.0)
+                        .toDouble();
                     const outerHorizontalPadding = 24.0;
-                    final contentWidth = (mainConstraints.maxWidth - outerHorizontalPadding).clamp(120.0, double.infinity);
+                    final contentWidth =
+                        (mainConstraints.maxWidth - outerHorizontalPadding)
+                            .clamp(120.0, double.infinity);
 
                     final mainContent = _LibraryMainContent(
                       controller: _controller,
@@ -1654,10 +1789,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
                             left: 0,
                             bottom: 0,
                             right: 0,
-                            child: GestureDetector(
-                              onTap: _closeArchiveDetails,
-                              behavior: HitTestBehavior.opaque,
-                              child: Container(color: Colors.black.withValues(alpha: 0.22)),
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: GestureDetector(
+                                onTap: _closeArchiveDetails,
+                                behavior: HitTestBehavior.opaque,
+                                child: Container(
+                                  color: Colors.black.withValues(alpha: 0.22),
+                                ),
+                              ),
                             ),
                           ),
                         AnimatedPositioned(
@@ -1673,16 +1813,22 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> with WindowListen
                             availableStaticCategories: _categories
                                 .where((category) => category.isStatic)
                                 .toList(growable: false),
-                            isLoadingCategories: _isLoadingSelectedArchiveCategories,
-                            isUpdatingCategories: _isUpdatingSelectedArchiveCategories,
+                            isLoadingCategories:
+                                _isLoadingSelectedArchiveCategories,
+                            isUpdatingCategories:
+                                _isUpdatingSelectedArchiveCategories,
                             categoryMessage: _selectedArchiveCategoryMessage,
-                            categoryMessageIsError: _selectedArchiveCategoryMessageIsError,
-                            groupedTags: _selectedArchive == null ? const [] : _groupArchiveTags(_selectedArchive!),
+                            categoryMessageIsError:
+                                _selectedArchiveCategoryMessageIsError,
+                            groupedTags: _selectedArchive == null
+                                ? const []
+                                : _groupArchiveTags(_selectedArchive!),
                             onClose: _closeArchiveDetails,
                             onRead: _readSelectedArchive,
                             onTagSelected: _applyTagFilter,
                             onAddToCategory: _addSelectedArchiveToCategory,
-                            onRemoveFromCategory: _removeSelectedArchiveFromCategory,
+                            onRemoveFromCategory:
+                                _removeSelectedArchiveFromCategory,
                           ),
                         ),
                       ],
@@ -1786,13 +1932,14 @@ class _LibrarySearchField extends StatelessWidget {
         decoration: InputDecoration(
           hintText: AppStrings.librarySearchHint,
           isDense: true,
-          prefixIcon: const Icon(Icons.search, size: 18, color: AppTheme.textMuted),
+          prefixIcon: const Icon(
+            Icons.search,
+            size: 18,
+            color: AppTheme.textMuted,
+          ),
           suffixIcon: controller.text.isEmpty
               ? null
-              : IconButton(
-                  onPressed: onClear,
-                  icon: const Icon(Icons.close),
-                ),
+              : IconButton(onPressed: onClear, icon: const Icon(Icons.close)),
         ),
       ),
     );
@@ -1833,7 +1980,11 @@ class _LibrarySuggestionList extends StatelessWidget {
                 selectedTileColor: AppTheme.crimson.withValues(alpha: 0.14),
                 onTap: () => onSuggestionTap(suggestion),
                 leading: _SuggestionBadge(label: suggestion.kindLabel),
-                title: Text(suggestion.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                title: Text(
+                  suggestion.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               );
             },
           ),
@@ -1856,7 +2007,10 @@ class _LibraryUnconfiguredView extends StatelessWidget {
         children: [
           const Text(AppStrings.noServerConfigured),
           const SizedBox(height: 12),
-          ElevatedButton(onPressed: onConfigure, child: const Text(AppStrings.configure)),
+          ElevatedButton(
+            onPressed: onConfigure,
+            child: const Text(AppStrings.configure),
+          ),
         ],
       ),
     );
@@ -1887,8 +2041,14 @@ class _LibraryLoadErrorView extends StatelessWidget {
             runSpacing: 12,
             alignment: WrapAlignment.center,
             children: [
-              ElevatedButton(onPressed: onRetry, child: const Text(AppStrings.retry)),
-              OutlinedButton(onPressed: onOpenSettings, child: const Text(AppStrings.settingsTitle)),
+              ElevatedButton(
+                onPressed: onRetry,
+                child: const Text(AppStrings.retry),
+              ),
+              OutlinedButton(
+                onPressed: onOpenSettings,
+                child: const Text(AppStrings.settingsTitle),
+              ),
             ],
           ),
         ],
@@ -1910,7 +2070,10 @@ class _LibraryEmptyView extends StatelessWidget {
         children: [
           const Text(AppStrings.noArchivesFound),
           const SizedBox(height: 12),
-          OutlinedButton(onPressed: onRefresh, child: const Text(AppStrings.refresh)),
+          OutlinedButton(
+            onPressed: onRefresh,
+            child: const Text(AppStrings.refresh),
+          ),
         ],
       ),
     );
@@ -1918,11 +2081,19 @@ class _LibraryEmptyView extends StatelessWidget {
 }
 
 class _SearchSuggestion {
-  const _SearchSuggestion({required this.label, required this.filterValue, required this.kind, required this.weight, required this.priority});
+  const _SearchSuggestion({
+    required this.label,
+    required this.filterValue,
+    required this.kind,
+    required this.weight,
+    required this.priority,
+  });
 
   factory _SearchSuggestion.fromTagStat(LanraragiTagStat stat) {
     final colonIndex = stat.value.indexOf(':');
-    final kind = colonIndex == -1 ? 'tag' : stat.value.substring(0, colonIndex).trim();
+    final kind = colonIndex == -1
+        ? 'tag'
+        : stat.value.substring(0, colonIndex).trim();
     return _SearchSuggestion(
       label: stat.value,
       filterValue: stat.value,
@@ -1962,7 +2133,9 @@ class _SuggestionBadge extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         child: Text(
           label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white70),
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: Colors.white70),
         ),
       ),
     );
@@ -1998,7 +2171,8 @@ class _ToolbarMenuButton<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final resolvedItemHoverColor = itemHoverColor ?? AppTheme.crimson.withValues(alpha: 0.14);
+    final resolvedItemHoverColor =
+        itemHoverColor ?? AppTheme.crimson.withValues(alpha: 0.14);
     final itemButtonStyle = ButtonStyle(
       padding: const WidgetStatePropertyAll(EdgeInsets.zero),
       minimumSize: WidgetStatePropertyAll(Size(width, 36)),
@@ -2007,13 +2181,15 @@ class _ToolbarMenuButton<T> extends StatelessWidget {
         RoundedRectangleBorder(borderRadius: BorderRadius.zero),
       ),
       backgroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
+        if (states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.focused)) {
           return resolvedItemHoverColor;
         }
         return const Color(0xFF1E1E1E);
       }),
       foregroundColor: WidgetStateProperty.resolveWith((states) {
-        if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
+        if (states.contains(WidgetState.hovered) ||
+            states.contains(WidgetState.focused)) {
           return AppTheme.textPrimary;
         }
         return AppTheme.textSecondary;
@@ -2056,11 +2232,7 @@ class _ToolbarMenuButton<T> extends StatelessWidget {
         menuChildren.add(
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
-            child: Divider(
-              height: 1,
-              thickness: 0.5,
-              color: AppTheme.border,
-            ),
+            child: Divider(height: 1, thickness: 0.5, color: AppTheme.border),
           ),
         );
       }
@@ -2123,10 +2295,15 @@ class _ToolbarMenuButton<T> extends StatelessWidget {
               child: DecoratedBox(
                 decoration: const BoxDecoration(
                   color: AppTheme.surface,
-                  border: Border.fromBorderSide(BorderSide(color: AppTheme.border, width: 0.5)),
+                  border: Border.fromBorderSide(
+                    BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -2134,11 +2311,17 @@ class _ToolbarMenuButton<T> extends StatelessWidget {
                           label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textPrimary),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppTheme.textPrimary,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      const Icon(Icons.expand_more, size: 16, color: AppTheme.textSecondary),
+                      const Icon(
+                        Icons.expand_more,
+                        size: 16,
+                        color: AppTheme.textSecondary,
+                      ),
                     ],
                   ),
                 ),
@@ -2252,10 +2435,15 @@ class _CategoryFilterMenu extends StatelessWidget {
               child: DecoratedBox(
                 decoration: const BoxDecoration(
                   color: AppTheme.surface,
-                  border: Border.fromBorderSide(BorderSide(color: AppTheme.border, width: 0.5)),
+                  border: Border.fromBorderSide(
+                    BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -2263,11 +2451,17 @@ class _CategoryFilterMenu extends StatelessWidget {
                           label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textPrimary),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppTheme.textPrimary,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      const Icon(Icons.expand_more, size: 16, color: AppTheme.textSecondary),
+                      const Icon(
+                        Icons.expand_more,
+                        size: 16,
+                        color: AppTheme.textSecondary,
+                      ),
                     ],
                   ),
                 ),
@@ -2389,10 +2583,15 @@ class _FiltersMenuButton extends StatelessWidget {
               child: DecoratedBox(
                 decoration: const BoxDecoration(
                   color: AppTheme.surface,
-                  border: Border.fromBorderSide(BorderSide(color: AppTheme.border, width: 0.5)),
+                  border: Border.fromBorderSide(
+                    BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
                       Expanded(
@@ -2400,7 +2599,9 @@ class _FiltersMenuButton extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           text: TextSpan(
-                            style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textPrimary),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: AppTheme.textPrimary,
+                            ),
                             children: [
                               const TextSpan(text: AppStrings.filters),
                               if (activeCount > 0)
@@ -2416,7 +2617,11 @@ class _FiltersMenuButton extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      const Icon(Icons.expand_more, size: 16, color: AppTheme.textSecondary),
+                      const Icon(
+                        Icons.expand_more,
+                        size: 16,
+                        color: AppTheme.textSecondary,
+                      ),
                     ],
                   ),
                 ),
@@ -2443,7 +2648,9 @@ class _FilterCheckboxMenuRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final foregroundColor = value ? const Color(0xFF49D7E8) : AppTheme.textMuted;
+    final foregroundColor = value
+        ? const Color(0xFF49D7E8)
+        : AppTheme.textMuted;
 
     return InkWell(
       onTap: () => onChanged(!value),
@@ -2462,11 +2669,7 @@ class _FilterCheckboxMenuRow extends StatelessWidget {
               ),
             ),
             if (value)
-              const Icon(
-                Icons.done,
-                size: 14,
-                color: Color(0xFF49D7E8),
-              ),
+              const Icon(Icons.done, size: 14, color: Color(0xFF49D7E8)),
           ],
         ),
       ),
@@ -2490,23 +2693,22 @@ class _DynamicCategoryMenuRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final foregroundColor = selected ? const Color(0xFF49D7E8) : AppTheme.textMuted;
+    final foregroundColor = selected
+        ? const Color(0xFF49D7E8)
+        : AppTheme.textMuted;
 
     return Builder(
       builder: (context) {
         return InkWell(
           onTap: () => onChanged(!selected),
-          onSecondaryTapDown: (details) => onOpenActions(category, details.globalPosition),
+          onSecondaryTapDown: (details) =>
+              onOpenActions(category, details.globalPosition),
           mouseCursor: SystemMouseCursors.click,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               children: [
-                Icon(
-                  Icons.bolt,
-                  size: 12,
-                  color: foregroundColor,
-                ),
+                Icon(Icons.bolt, size: 12, color: foregroundColor),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -2520,11 +2722,7 @@ class _DynamicCategoryMenuRow extends StatelessWidget {
                 if (selected)
                   const Padding(
                     padding: EdgeInsets.only(right: 6),
-                    child: Icon(
-                      Icons.done,
-                      size: 14,
-                      color: Color(0xFF49D7E8),
-                    ),
+                    child: Icon(Icons.done, size: 14, color: Color(0xFF49D7E8)),
                   ),
                 IconButton(
                   onPressed: () async {
@@ -2533,15 +2731,24 @@ class _DynamicCategoryMenuRow extends StatelessWidget {
                     if (renderBox == null) {
                       return;
                     }
-                    final topRight = renderBox.localToGlobal(Offset(renderBox.size.width, 0));
+                    final topRight = renderBox.localToGlobal(
+                      Offset(renderBox.size.width, 0),
+                    );
                     await onOpenActions(category, topRight);
                   },
                   tooltip: 'Category actions',
                   padding: EdgeInsets.zero,
                   visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
                   splashRadius: 16,
-                  icon: const Icon(Icons.more_horiz, size: 16, color: AppTheme.textSecondary),
+                  icon: const Icon(
+                    Icons.more_horiz,
+                    size: 16,
+                    color: AppTheme.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -2570,7 +2777,8 @@ class _CategoryFilterMenuItem extends StatefulWidget {
   final Color? textColor;
 
   @override
-  State<_CategoryFilterMenuItem> createState() => _CategoryFilterMenuItemState();
+  State<_CategoryFilterMenuItem> createState() =>
+      _CategoryFilterMenuItemState();
 }
 
 class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
@@ -2615,7 +2823,8 @@ class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final highlightColor = widget.highlightColor ?? AppTheme.crimson.withValues(alpha: 0.14);
+    final highlightColor =
+        widget.highlightColor ?? AppTheme.crimson.withValues(alpha: 0.14);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -2656,15 +2865,24 @@ class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
                         if (renderBox == null) {
                           return;
                         }
-                        final topRight = renderBox.localToGlobal(Offset(renderBox.size.width, 0));
+                        final topRight = renderBox.localToGlobal(
+                          Offset(renderBox.size.width, 0),
+                        );
                         await _showContextMenu(topRight);
                       },
                       tooltip: 'Category actions',
                       padding: EdgeInsets.zero,
                       visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      constraints: const BoxConstraints(
+                        minWidth: 28,
+                        minHeight: 28,
+                      ),
                       splashRadius: 16,
-                      icon: const Icon(Icons.more_horiz, size: 16, color: AppTheme.textSecondary),
+                      icon: const Icon(
+                        Icons.more_horiz,
+                        size: 16,
+                        color: AppTheme.textSecondary,
+                      ),
                     ),
                 ],
               ),
@@ -2716,7 +2934,9 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
 
   String _tagLabel(String namespace, String rawTag) {
     final separatorIndex = rawTag.indexOf(':');
-    final value = separatorIndex == -1 ? rawTag.trim() : rawTag.substring(separatorIndex + 1).trim();
+    final value = separatorIndex == -1
+        ? rawTag.trim()
+        : rawTag.substring(separatorIndex + 1).trim();
     final formattedDate = _tryFormatTagDate(namespace, value);
     if (formattedDate != null) {
       return formattedDate;
@@ -2726,7 +2946,8 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
 
   String? _tryFormatTagDate(String namespace, String value) {
     final normalizedNamespace = namespace.toLowerCase();
-    if (!normalizedNamespace.contains('date') && !normalizedNamespace.contains('time')) {
+    if (!normalizedNamespace.contains('date') &&
+        !normalizedNamespace.contains('time')) {
       return null;
     }
 
@@ -2735,7 +2956,9 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
       return null;
     }
 
-    final timestamp = epochValue < 1000000000000 ? epochValue * 1000 : epochValue;
+    final timestamp = epochValue < 1000000000000
+        ? epochValue * 1000
+        : epochValue;
     final date = DateTime.fromMillisecondsSinceEpoch(timestamp).toLocal();
     final month = date.month.toString().padLeft(2, '0');
     final day = date.day.toString().padLeft(2, '0');
@@ -2776,9 +2999,7 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
       elevation: 24,
       child: DecoratedBox(
         decoration: const BoxDecoration(
-          border: Border(
-            left: BorderSide(color: AppTheme.border, width: 0.5),
-          ),
+          border: Border(left: BorderSide(color: AppTheme.border, width: 0.5)),
         ),
         child: SafeArea(
           left: false,
@@ -2802,170 +3023,230 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
                     ? const SizedBox.shrink()
                     : SelectionArea(
                         child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            AspectRatio(
-                              aspectRatio: 2 / 3,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: ArchiveThumbnail(archive: archive!, fit: BoxFit.cover),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              AspectRatio(
+                                aspectRatio: 2 / 3,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: ArchiveThumbnail(
+                                    archive: archive!,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              archive!.title,
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(color: AppTheme.textPrimary),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              archive!.pageCount == null ? 'Unknown page count' : '${archive!.pageCount} pages',
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textSecondary),
-                            ),
-                            const SizedBox(height: 16),
-                            _buildSectionLabel(context, AppStrings.categoriesTitle),
-                            const SizedBox(height: 6),
-                            if (isLoadingCategories)
-                              const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            else ...[
-                              if (categories.isEmpty)
-                                Text(
-                                  'Not in any categories.',
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textSecondary),
+                              const SizedBox(height: 16),
+                              Text(
+                                archive!.title,
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(color: AppTheme.textPrimary),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                archive!.pageCount == null
+                                    ? 'Unknown page count'
+                                    : '${archive!.pageCount} pages',
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(color: AppTheme.textSecondary),
+                              ),
+                              const SizedBox(height: 16),
+                              _buildSectionLabel(
+                                context,
+                                AppStrings.categoriesTitle,
+                              ),
+                              const SizedBox(height: 6),
+                              if (isLoadingCategories)
+                                const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
-                              else
+                              else ...[
+                                if (categories.isEmpty)
+                                  Text(
+                                    'Not in any categories.',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                  )
+                                else
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: categories
+                                        .map(
+                                          (category) => InputChip(
+                                            label: Text(category.name),
+                                            onDeleted: isUpdatingCategories
+                                                ? null
+                                                : () => onRemoveFromCategory(
+                                                    category.id,
+                                                  ),
+                                            deleteIconColor:
+                                                AppTheme.textSecondary,
+                                            backgroundColor: const Color(
+                                              0xFF2A2A2A,
+                                            ),
+                                            labelStyle: const TextStyle(
+                                              fontSize: 11,
+                                              color: AppTheme.textPrimary,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                            side: BorderSide.none,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                            ),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                  ),
+                                const SizedBox(height: 8),
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF202020),
+                                    border: Border.all(
+                                      color: AppTheme.border,
+                                      width: 0.5,
+                                    ),
+                                  ),
+                                  child: LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      return _ToolbarMenuButton<String>(
+                                        width: constraints.maxWidth,
+                                        label: _addableStaticCategories.isEmpty
+                                            ? AppStrings.noStaticCategories
+                                            : AppStrings.addToCategory,
+                                        items: _addableStaticCategories
+                                            .map(
+                                              (category) =>
+                                                  _ToolbarMenuOption<String>(
+                                                    value: category.id,
+                                                    label: category.name,
+                                                  ),
+                                            )
+                                            .toList(growable: false),
+                                        itemHoverColor: const Color(0xFF49D7E8),
+                                        onSelected:
+                                            isUpdatingCategories ||
+                                                _addableStaticCategories.isEmpty
+                                            ? (_) {}
+                                            : (categoryId) {
+                                                if (categoryId != null) {
+                                                  onAddToCategory(categoryId);
+                                                }
+                                              },
+                                      );
+                                    },
+                                  ),
+                                ),
+                                if (categoryMessage != null) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    categoryMessage!,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          color: categoryMessageIsError
+                                              ? AppTheme.crimson
+                                              : AppTheme.textSecondary,
+                                        ),
+                                  ),
+                                ],
+                              ],
+                              if (archive!.sourceUrl != null &&
+                                  archive!.sourceUrl!.trim().isNotEmpty) ...[
+                                const SizedBox(height: 16),
+                                _buildSectionLabel(context, 'Source'),
+                                const SizedBox(height: 6),
+                                MouseRegion(
+                                  cursor: SystemMouseCursors.click,
+                                  child: GestureDetector(
+                                    onTap: () => _openSourceUrl(
+                                      archive!.sourceUrl!.trim(),
+                                    ),
+                                    behavior: HitTestBehavior.opaque,
+                                    child: Text(
+                                      archive!.sourceUrl!.trim(),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            color: AppTheme.crimson,
+                                            decoration:
+                                                TextDecoration.underline,
+                                            decorationColor: AppTheme.crimson,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 16),
+                              for (final namespace in groupedTags) ...[
+                                _buildSectionLabel(
+                                  context,
+                                  namespace.namespace,
+                                ),
+                                const SizedBox(height: 6),
                                 Wrap(
                                   spacing: 6,
                                   runSpacing: 6,
-                                  children: categories
+                                  children: namespace.tags
                                       .map(
-                                        (category) => InputChip(
-                                          label: Text(category.name),
-                                          onDeleted: isUpdatingCategories
-                                              ? null
-                                              : () => onRemoveFromCategory(category.id),
-                                          deleteIconColor: AppTheme.textSecondary,
-                                          backgroundColor: const Color(0xFF2A2A2A),
-                                          labelStyle: const TextStyle(
-                                            fontSize: 11,
-                                            color: AppTheme.textPrimary,
-                                            fontWeight: FontWeight.w500,
+                                        (tag) => ActionChip(
+                                          onPressed: () => onTagSelected(tag),
+                                          mouseCursor: SystemMouseCursors.click,
+                                          label: Text(
+                                            _tagLabel(namespace.namespace, tag),
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              color: AppTheme.crimson,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 0,
+                                          ),
+                                          visualDensity: const VisualDensity(
+                                            horizontal: -2,
+                                            vertical: -3,
+                                          ),
+                                          materialTapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
+                                          backgroundColor: const Color(
+                                            0xFF2A2A2A,
                                           ),
                                           side: BorderSide.none,
                                           shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(999),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
                                           ),
                                         ),
                                       )
                                       .toList(growable: false),
                                 ),
-                              const SizedBox(height: 8),
-                              DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF202020),
-                                  border: Border.all(color: AppTheme.border, width: 0.5),
-                                ),
-                                child: LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    return _ToolbarMenuButton<String>(
-                                      width: constraints.maxWidth,
-                                      label: _addableStaticCategories.isEmpty
-                                          ? AppStrings.noStaticCategories
-                                          : AppStrings.addToCategory,
-                                      items: _addableStaticCategories
-                                          .map(
-                                            (category) => _ToolbarMenuOption<String>(
-                                              value: category.id,
-                                              label: category.name,
-                                            ),
-                                          )
-                                          .toList(growable: false),
-                                      itemHoverColor: const Color(0xFF49D7E8),
-                                      onSelected: isUpdatingCategories || _addableStaticCategories.isEmpty
-                                          ? (_) {}
-                                          : (categoryId) {
-                                              if (categoryId != null) {
-                                                onAddToCategory(categoryId);
-                                              }
-                                            },
-                                    );
-                                  },
-                                ),
-                              ),
-                              if (categoryMessage != null) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  categoryMessage!,
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: categoryMessageIsError ? AppTheme.crimson : AppTheme.textSecondary,
-                                  ),
-                                ),
+                                const SizedBox(height: 12),
                               ],
-                            ],
-                            if (archive!.sourceUrl != null && archive!.sourceUrl!.trim().isNotEmpty) ...[
-                              const SizedBox(height: 16),
-                              _buildSectionLabel(context, 'Source'),
-                              const SizedBox(height: 6),
-                              MouseRegion(
-                                cursor: SystemMouseCursors.click,
-                                child: GestureDetector(
-                                  onTap: () => _openSourceUrl(archive!.sourceUrl!.trim()),
-                                  behavior: HitTestBehavior.opaque,
-                                  child: Text(
-                                    archive!.sourceUrl!.trim(),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      color: AppTheme.crimson,
-                                      decoration: TextDecoration.underline,
-                                      decorationColor: AppTheme.crimson,
-                                    ),
-                                  ),
+                              if (groupedTags.isEmpty)
+                                Text(
+                                  'No tags available.',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(color: AppTheme.textSecondary),
                                 ),
-                              ),
                             ],
-                            const SizedBox(height: 16),
-                            for (final namespace in groupedTags) ...[
-                              _buildSectionLabel(context, namespace.namespace),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: namespace.tags
-                                    .map(
-                                      (tag) => ActionChip(
-                                        onPressed: () => onTagSelected(tag),
-                                        mouseCursor: SystemMouseCursors.click,
-                                        label: Text(
-                                          _tagLabel(namespace.namespace, tag),
-                                          style: const TextStyle(fontSize: 11, color: AppTheme.crimson, fontWeight: FontWeight.w500),
-                                        ),
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                                        visualDensity: const VisualDensity(horizontal: -2, vertical: -3),
-                                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                        backgroundColor: const Color(0xFF2A2A2A),
-                                        side: BorderSide.none,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-                                      ),
-                                    )
-                                    .toList(growable: false),
-                              ),
-                              const SizedBox(height: 12),
-                            ],
-                            if (groupedTags.isEmpty)
-                              Text(
-                                'No tags available.',
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppTheme.textSecondary),
-                              ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
               ),
               if (archive != null)
                 Padding(
@@ -2975,7 +3256,9 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
                     child: ElevatedButton(
                       onPressed: onRead,
                       style: const ButtonStyle(
-                        mouseCursor: WidgetStatePropertyAll(SystemMouseCursors.click),
+                        mouseCursor: WidgetStatePropertyAll(
+                          SystemMouseCursors.click,
+                        ),
                       ),
                       child: const Text('Read'),
                     ),
@@ -2990,10 +3273,7 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar({
-    required this.onRefresh,
-    this.onOpenSidebarMenu,
-  });
+  const _TopBar({required this.onRefresh, this.onOpenSidebarMenu});
 
   final VoidCallback onRefresh;
   final VoidCallback? onOpenSidebarMenu;
@@ -3004,16 +3284,15 @@ class _TopBar extends StatelessWidget {
       height: 52,
       decoration: const BoxDecoration(
         color: AppTheme.background,
-        border: Border(
-          bottom: BorderSide(color: AppTheme.border, width: 0.5),
-        ),
+        border: Border(bottom: BorderSide(color: AppTheme.border, width: 0.5)),
       ),
       child: SafeArea(
         bottom: false,
         child: DragToMoveArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final showSidebarMenuButton = onOpenSidebarMenu != null && constraints.maxWidth < 780;
+              final showSidebarMenuButton =
+                  onOpenSidebarMenu != null && constraints.maxWidth < 780;
 
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -3094,9 +3373,7 @@ class _LibrarySidebar extends StatelessWidget {
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: Color(0xFF1A1A1A),
-        border: Border(
-          right: BorderSide(color: AppTheme.border, width: 0.5),
-        ),
+        border: Border(right: BorderSide(color: AppTheme.border, width: 0.5)),
       ),
       child: SafeArea(
         bottom: false,
@@ -3152,8 +3429,13 @@ class _LibrarySidebar extends StatelessWidget {
                 foregroundColor: const Color(0xFF03161A),
                 disabledBackgroundColor: const Color(0xFF2C6670),
                 disabledForegroundColor: const Color(0xFFB4DDE3),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 14,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               icon: isPickingRandom
                   ? const SizedBox(
@@ -3162,7 +3444,11 @@ class _LibrarySidebar extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.casino_outlined, size: 18),
-              label: Text(isPickingRandom ? AppStrings.pickingRandom : AppStrings.randomPick),
+              label: Text(
+                isPickingRandom
+                    ? AppStrings.pickingRandom
+                    : AppStrings.randomPick,
+              ),
             ),
           ),
           if (randomPickMessage != null) ...[
@@ -3170,7 +3456,9 @@ class _LibrarySidebar extends StatelessWidget {
             Text(
               randomPickMessage!,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: randomPickMessageIsError ? AppTheme.crimson : AppTheme.textMuted,
+                color: randomPickMessageIsError
+                    ? AppTheme.crimson
+                    : AppTheme.textMuted,
               ),
             ),
           ],
@@ -3203,26 +3491,30 @@ class _LibrarySidebar extends StatelessWidget {
                       child: Text(
                         onDeckMessage ?? AppStrings.recentInProgressPlaceholder,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: onDeckMessageIsError ? AppTheme.crimson : AppTheme.textMuted,
+                          color: onDeckMessageIsError
+                              ? AppTheme.crimson
+                              : AppTheme.textMuted,
                         ),
                       ),
                     )
                   else
-                    ...onDeckEntries.indexed.expand((entry) => [
-                          if (entry.$1 > 0)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Divider(
-                                height: 1,
-                                thickness: 0.5,
-                                color: AppTheme.border,
-                              ),
+                    ...onDeckEntries.indexed.expand(
+                      (entry) => [
+                        if (entry.$1 > 0)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Divider(
+                              height: 1,
+                              thickness: 0.5,
+                              color: AppTheme.border,
                             ),
-                          _OnDeckCoverTile(
-                            entry: entry.$2,
-                            onTap: () => onOpenOnDeck(entry.$2),
                           ),
-                        ]),
+                        _OnDeckCoverTile(
+                          entry: entry.$2,
+                          onTap: () => onOpenOnDeck(entry.$2),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -3246,9 +3538,13 @@ class _LibrarySidebar extends StatelessWidget {
           _buildBrandIcon(36),
           const SizedBox(height: 14),
           Tooltip(
-            message: isPickingRandom ? AppStrings.pickingRandomTooltip : AppStrings.randomPick,
+            message: isPickingRandom
+                ? AppStrings.pickingRandomTooltip
+                : AppStrings.randomPick,
             child: _SidebarIconButton(
-              icon: isPickingRandom ? Icons.hourglass_top : Icons.casino_outlined,
+              icon: isPickingRandom
+                  ? Icons.hourglass_top
+                  : Icons.casino_outlined,
               onTap: isPickingRandom ? null : onRandomPick,
               accent: const Color(0xFF49D7E8),
             ),
@@ -3274,7 +3570,8 @@ class _LibrarySidebar extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Tooltip(
-                        message: '${entry.title}\n${entry.currentPage} / ${entry.totalPages}',
+                        message:
+                            '${entry.title}\n${entry.currentPage} / ${entry.totalPages}',
                         child: _CompactOnDeckThumb(
                           entry: entry,
                           onTap: () => onOpenOnDeck(entry),
@@ -3296,7 +3593,6 @@ class _LibrarySidebar extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _OnDeckCoverTile extends StatelessWidget {
@@ -3429,7 +3725,6 @@ class _SidebarActionTile extends StatelessWidget {
   }
 }
 
-
 class _CategoryDialogResult {
   const _CategoryDialogResult({
     required this.name,
@@ -3557,7 +3852,9 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                 TextField(
                   controller: _nameController,
                   autofocus: true,
-                  style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textPrimary),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.textPrimary,
+                  ),
                   decoration: _fieldDecoration(),
                   textInputAction: TextInputAction.next,
                 ),
@@ -3574,7 +3871,9 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                 const SizedBox(height: 6),
                 TextField(
                   controller: _searchController,
-                  style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textPrimary),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.textPrimary,
+                  ),
                   decoration: _fieldDecoration(),
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => _submit(),
@@ -3589,9 +3888,16 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                         }
                         return Colors.transparent;
                       }),
-                      checkColor: const WidgetStatePropertyAll(Color(0xFF03161A)),
-                      side: const BorderSide(color: Color(0xFF49D7E8), width: 1),
-                      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                      checkColor: const WidgetStatePropertyAll(
+                        Color(0xFF03161A),
+                      ),
+                      side: const BorderSide(
+                        color: Color(0xFF49D7E8),
+                        width: 1,
+                      ),
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.zero,
+                      ),
                     ),
                   ),
                   child: InkWell(
@@ -3604,14 +3910,21 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                         children: [
                           Checkbox(
                             value: _pinned,
-                            onChanged: (value) => setState(() => _pinned = value ?? false),
-                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
+                            onChanged: (value) =>
+                                setState(() => _pinned = value ?? false),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: const VisualDensity(
+                              horizontal: -4,
+                              vertical: -4,
+                            ),
                           ),
                           const SizedBox(width: 8),
                           Text(
                             AppStrings.categoryPinnedLabel,
-                            style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textSecondary),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: AppTheme.textSecondary,
+                            ),
                           ),
                         ],
                       ),
@@ -3626,10 +3939,15 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                       onPressed: () => Navigator.of(context).pop(),
                       style: TextButton.styleFrom(
                         foregroundColor: AppTheme.textMuted,
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
                         minimumSize: const Size(0, 30),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        textStyle: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+                        textStyle: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                       child: const Text(AppStrings.cancel),
                     ),
@@ -3640,11 +3958,18 @@ class _CategoryDialogState extends State<_CategoryDialog> {
                         backgroundColor: const Color(0xFF49D7E8),
                         foregroundColor: const Color(0xFF03161A),
                         elevation: 0,
-                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero,
+                        ),
                         minimumSize: const Size(0, 30),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        textStyle: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        textStyle: theme.textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       child: Text(widget.submitLabel),
                     ),
@@ -3692,7 +4017,9 @@ class _DeleteCategoryDialog extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(
                   AppStrings.deleteCategoryConfirmation,
-                  style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.textPrimary),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -3705,7 +4032,9 @@ class _DeleteCategoryDialog extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   AppStrings.deleteCategoryWarning,
-                  style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.textMuted),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.textMuted,
+                  ),
                 ),
                 const SizedBox(height: 14),
                 Row(
@@ -3715,10 +4044,15 @@ class _DeleteCategoryDialog extends StatelessWidget {
                       onPressed: () => Navigator.of(context).pop(false),
                       style: TextButton.styleFrom(
                         foregroundColor: AppTheme.textMuted,
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
                         minimumSize: const Size(0, 30),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        textStyle: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+                        textStyle: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                       child: const Text(AppStrings.cancel),
                     ),
@@ -3729,11 +4063,18 @@ class _DeleteCategoryDialog extends StatelessWidget {
                         backgroundColor: const Color(0xFF49D7E8),
                         foregroundColor: const Color(0xFF03161A),
                         elevation: 0,
-                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero,
+                        ),
                         minimumSize: const Size(0, 30),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        textStyle: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        textStyle: theme.textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       child: const Text(AppStrings.delete),
                     ),
@@ -3766,7 +4107,9 @@ class _SidebarIconButton extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         onTap: onTap,
-        mouseCursor: onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
+        mouseCursor: onTap == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
         borderRadius: BorderRadius.circular(10),
         child: SizedBox(
           width: 44,
@@ -3774,7 +4117,9 @@ class _SidebarIconButton extends StatelessWidget {
           child: Icon(
             icon,
             size: 20,
-            color: accent == null ? AppTheme.textSecondary : const Color(0xFF03161A),
+            color: accent == null
+                ? AppTheme.textSecondary
+                : const Color(0xFF03161A),
           ),
         ),
       ),
@@ -3896,7 +4241,8 @@ class _MaximizeWindowControlButton extends StatefulWidget {
 }
 
 class _MaximizeWindowControlButtonState
-    extends State<_MaximizeWindowControlButton> with WindowListener {
+    extends State<_MaximizeWindowControlButton>
+    with WindowListener {
   bool _isExpanded = false;
 
   @override
@@ -3933,8 +4279,8 @@ class _MaximizeWindowControlButtonState
   }
 
   Future<void> _syncWindowState() async {
-    final isExpanded = await windowManager.isFullScreen() ||
-        await windowManager.isMaximized();
+    final isExpanded =
+        await windowManager.isFullScreen() || await windowManager.isMaximized();
     _setExpanded(isExpanded);
   }
 
@@ -3955,8 +4301,9 @@ class _MaximizeWindowControlButtonState
   @override
   Widget build(BuildContext context) {
     return _WindowControlButton(
-      icon:
-          _isExpanded ? Icons.filter_none_rounded : Icons.check_box_outline_blank_rounded,
+      icon: _isExpanded
+          ? Icons.filter_none_rounded
+          : Icons.check_box_outline_blank_rounded,
       hoverColor: AppTheme.surfaceRaised,
       onPressed: _handlePressed,
     );
@@ -3981,14 +4328,15 @@ class _MinimizeWindowGlyph extends StatelessWidget {
   }
 }
 
-
 bool get _isDesktopWindowControlsEnabled {
   if (kIsWeb) {
     return false;
   }
 
   return switch (defaultTargetPlatform) {
-    TargetPlatform.windows || TargetPlatform.linux || TargetPlatform.macOS => true,
+    TargetPlatform.windows ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => true,
     _ => false,
   };
 }
