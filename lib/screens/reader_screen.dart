@@ -20,7 +20,6 @@ enum _PagedScrollResetAnchor { top, bottom }
 
 enum _PagedWheelEdge { top, bottom }
 
-const double _keyboardScrollDelta = 72;
 const double _trackpadPanSensitivity = 0.6;
 
 bool _isTrackpadScrollEvent(PointerScrollEvent event) {
@@ -52,6 +51,8 @@ class ReaderScreen extends ConsumerStatefulWidget {
 
 class _ReaderScreenState extends ConsumerState<ReaderScreen>
     with WindowListener {
+  static const _keyboardScrollDuration = Duration(milliseconds: 150);
+
   late Future<_ReaderDocument> _documentFuture;
   final FocusNode _readerFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
@@ -83,6 +84,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   List<GlobalKey> _pageKeys = const [];
   List<GlobalKey<_ReaderPageState>> _pagedPageStateKeys = const [];
   Map<String, ImageProvider<Object>> _pageImageProviders = {};
+  double? _continuousAnimatedScrollTarget;
 
   @override
   void initState() {
@@ -482,11 +484,33 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _setZoomLevel(1.0);
   }
 
+  double _continuousScrollStep() {
+    if (_scrollController.hasClients) {
+      return _scrollController.position.viewportDimension * 0.8;
+    }
+
+    return MediaQuery.sizeOf(context).height * 0.8;
+  }
+
+  bool get _usesCustomContinuousPointerScrolling {
+    if (kIsWeb) {
+      return false;
+    }
+
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.linux ||
+      TargetPlatform.macOS => true,
+      _ => false,
+    };
+  }
+
   bool _applyContinuousScrollDelta(double deltaY) {
     if (deltaY == 0 || !_scrollController.hasClients) {
       return false;
     }
 
+    _continuousAnimatedScrollTarget = null;
     final position = _scrollController.position;
     final targetOffset = (position.pixels + deltaY).clamp(
       position.minScrollExtent,
@@ -500,6 +524,37 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     return true;
   }
 
+  bool _applyAnimatedContinuousScrollDelta(double deltaY) {
+    if (deltaY == 0 || !_scrollController.hasClients) {
+      return false;
+    }
+
+    final position = _scrollController.position;
+    final targetOffset =
+        ((_continuousAnimatedScrollTarget ?? position.pixels) + deltaY).clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        );
+    if ((targetOffset - position.pixels).abs() <= 0.5) {
+      return false;
+    }
+
+    _continuousAnimatedScrollTarget = targetOffset;
+    _scrollController
+        .animateTo(
+          targetOffset,
+          duration: _keyboardScrollDuration,
+          curve: Curves.easeOut,
+        )
+        .whenComplete(() {
+          if (!mounted || _continuousAnimatedScrollTarget != targetOffset) {
+            return;
+          }
+          _continuousAnimatedScrollTarget = null;
+        });
+    return true;
+  }
+
   bool _applyPagedKeyboardScroll(double deltaY) {
     if (_currentPage < 0 || _currentPage >= _pagedPageStateKeys.length) {
       return false;
@@ -509,6 +564,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           deltaY,
         ) ??
         false;
+  }
+
+  double _pagedKeyboardScrollStep() {
+    if (_currentPage < 0 || _currentPage >= _pagedPageStateKeys.length) {
+      return MediaQuery.sizeOf(context).height * 0.8;
+    }
+
+    return _pagedPageStateKeys[_currentPage].currentState
+            ?.keyboardScrollStep() ??
+        MediaQuery.sizeOf(context).height * 0.8;
   }
 
   void _handleContinuousPointerSignal(PointerSignalEvent event) {
@@ -527,11 +592,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return;
     }
 
-    if (!_isTrackpadScrollEvent(event)) {
+    if (_isTrackpadScrollEvent(event)) {
+      _applyContinuousScrollDelta(deltaY);
       return;
     }
 
-    _applyContinuousScrollDelta(deltaY);
+    if (_usesCustomContinuousPointerScrolling) {
+      _applyAnimatedContinuousScrollDelta(deltaY);
+    }
   }
 
   void _handleContinuousPanZoomUpdate(PointerPanZoomUpdateEvent event) {
@@ -855,32 +923,32 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         if (_continuousScroll) {
           return KeyEventResult.ignored;
         }
-        return _applyPagedKeyboardScroll(-_keyboardScrollDelta)
+        return _applyPagedKeyboardScroll(-_pagedKeyboardScrollStep())
             ? KeyEventResult.handled
             : KeyEventResult.ignored;
       case LogicalKeyboardKey.arrowRight:
         if (_continuousScroll) {
           return KeyEventResult.ignored;
         }
-        return _applyPagedKeyboardScroll(_keyboardScrollDelta)
+        return _applyPagedKeyboardScroll(_pagedKeyboardScrollStep())
             ? KeyEventResult.handled
             : KeyEventResult.ignored;
       case LogicalKeyboardKey.arrowUp:
         if (_continuousScroll) {
-          return _applyContinuousScrollDelta(-_keyboardScrollDelta)
+          return _applyAnimatedContinuousScrollDelta(-_continuousScrollStep())
               ? KeyEventResult.handled
               : KeyEventResult.ignored;
         }
-        return _applyPagedKeyboardScroll(-_keyboardScrollDelta)
+        return _applyPagedKeyboardScroll(-_pagedKeyboardScrollStep())
             ? KeyEventResult.handled
             : KeyEventResult.ignored;
       case LogicalKeyboardKey.arrowDown:
         if (_continuousScroll) {
-          return _applyContinuousScrollDelta(_keyboardScrollDelta)
+          return _applyAnimatedContinuousScrollDelta(_continuousScrollStep())
               ? KeyEventResult.handled
               : KeyEventResult.ignored;
         }
-        return _applyPagedKeyboardScroll(_keyboardScrollDelta)
+        return _applyPagedKeyboardScroll(_pagedKeyboardScrollStep())
             ? KeyEventResult.handled
             : KeyEventResult.ignored;
       case LogicalKeyboardKey.pageUp:
@@ -1060,6 +1128,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                       child: ListView.builder(
                                         key: ValueKey('scroll-$_reloadToken'),
                                         controller: _scrollController,
+                                        physics:
+                                            _usesCustomContinuousPointerScrolling
+                                            ? const NeverScrollableScrollPhysics()
+                                            : null,
                                         cacheExtent:
                                             MediaQuery.sizeOf(context).height *
                                             1.5,
@@ -1095,6 +1167,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                   'pageview-$_reloadToken-$_rightToLeft',
                                 ),
                                 controller: pageController,
+                                allowImplicitScrolling: true,
                                 physics: const NeverScrollableScrollPhysics(),
                                 reverse: _rightToLeft,
                                 itemCount: pageCount,
@@ -1114,6 +1187,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                     fitMode: _fitMode,
                                     zoomEnabled: true,
                                     zoomLevel: _zoomLevel,
+                                    keepWarm: (index - _currentPage).abs() <= 1,
                                     isActive: index == _currentPage,
                                     pagedNavigationEnabled: true,
                                     pagedScrollResetToken:
@@ -1823,6 +1897,7 @@ class _ReaderPage extends StatefulWidget {
     required this.zoomEnabled,
     this.zoomLevel = 1.0,
     this.continuousLayout = false,
+    this.keepWarm = false,
     this.isActive = false,
     this.pagedNavigationEnabled = false,
     this.pagedScrollResetToken,
@@ -1843,6 +1918,7 @@ class _ReaderPage extends StatefulWidget {
   final bool zoomEnabled;
   final double zoomLevel;
   final bool continuousLayout;
+  final bool keepWarm;
   final bool isActive;
   final bool pagedNavigationEnabled;
   final int? pagedScrollResetToken;
@@ -1874,10 +1950,13 @@ class _Scrollbarless extends StatelessWidget {
   }
 }
 
-class _ReaderPageState extends State<_ReaderPage> {
+class _ReaderPageState extends State<_ReaderPage>
+    with AutomaticKeepAliveClientMixin {
   static const _desktopGestureDevices = <PointerDeviceKind>{
     PointerDeviceKind.mouse,
   };
+
+  static const _keyboardScrollDuration = Duration(milliseconds: 150);
 
   final ScrollController _verticalScrollController = ScrollController();
   ImageStream? _imageStream;
@@ -1886,12 +1965,16 @@ class _ReaderPageState extends State<_ReaderPage> {
   Object? _imageError;
   _PagedWheelEdge? _armedWheelEdge;
   _PagedScrollResetAnchor? _pendingPagedScrollResetAnchor;
+  double? _animatedScrollTarget;
 
   int get _pagedScrollResetToken => widget.pagedScrollResetToken ?? 0;
 
   _PagedScrollResetAnchor get _pagedScrollResetAnchor {
     return widget.pagedScrollResetAnchor ?? _PagedScrollResetAnchor.top;
   }
+
+  @override
+  bool get wantKeepAlive => widget.keepWarm;
 
   @override
   void didChangeDependencies() {
@@ -1904,6 +1987,9 @@ class _ReaderPageState extends State<_ReaderPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.imageProvider != widget.imageProvider) {
       _resolveImage(force: true);
+    }
+    if (oldWidget.keepWarm != widget.keepWarm) {
+      updateKeepAlive();
     }
     if (widget.pagedNavigationEnabled &&
         widget.isActive &&
@@ -2083,7 +2169,15 @@ class _ReaderPageState extends State<_ReaderPage> {
   }
 
   bool handleKeyboardScroll(double deltaY) {
-    return _applyPagedPixelScroll(deltaY);
+    return _applyAnimatedScrollDelta(deltaY);
+  }
+
+  double keyboardScrollStep() {
+    if (_verticalScrollController.hasClients) {
+      return _verticalScrollController.position.viewportDimension * 0.8;
+    }
+
+    return MediaQuery.sizeOf(context).height * 0.8;
   }
 
   bool _applyPagedPixelScroll(double deltaY) {
@@ -2091,6 +2185,7 @@ class _ReaderPageState extends State<_ReaderPage> {
       return false;
     }
 
+    _animatedScrollTarget = null;
     final direction = deltaY > 0 ? _PagedWheelEdge.bottom : _PagedWheelEdge.top;
 
     if (!_verticalScrollController.hasClients) {
@@ -2118,30 +2213,51 @@ class _ReaderPageState extends State<_ReaderPage> {
     return true;
   }
 
-  void _handlePagedWheelScroll(double deltaY) {
+  bool _applyAnimatedScrollDelta(double deltaY) {
+    if (!widget.pagedNavigationEnabled) {
+      return false;
+    }
+
     final direction = deltaY > 0 ? _PagedWheelEdge.bottom : _PagedWheelEdge.top;
 
     if (!_verticalScrollController.hasClients) {
       _handlePagedWheelEdgePush(direction);
-      return;
+      _animatedScrollTarget = null;
+      return true;
     }
 
     final position = _verticalScrollController.position;
-    final currentOffset = position.pixels;
-    final minOffset = position.minScrollExtent;
-    final maxOffset = position.maxScrollExtent;
-    final targetOffset = (currentOffset + deltaY).clamp(minOffset, maxOffset);
+    final targetOffset = ((_animatedScrollTarget ?? position.pixels) + deltaY)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
 
-    if ((targetOffset - currentOffset).abs() > 0.5) {
-      _verticalScrollController.jumpTo(targetOffset);
+    if ((targetOffset - position.pixels).abs() > 0.5) {
+      _animatedScrollTarget = targetOffset;
       final hitEdge = direction == _PagedWheelEdge.bottom
-          ? targetOffset >= maxOffset - 0.5
-          : targetOffset <= minOffset + 0.5;
+          ? targetOffset >= position.maxScrollExtent - 0.5
+          : targetOffset <= position.minScrollExtent + 0.5;
       _armedWheelEdge = hitEdge ? direction : null;
-      return;
+      _verticalScrollController
+          .animateTo(
+            targetOffset,
+            duration: _keyboardScrollDuration,
+            curve: Curves.easeOut,
+          )
+          .whenComplete(() {
+            if (!mounted || _animatedScrollTarget != targetOffset) {
+              return;
+            }
+            _animatedScrollTarget = null;
+          });
+      return true;
     }
 
+    _animatedScrollTarget = null;
     _handlePagedWheelEdgePush(direction);
+    return true;
+  }
+
+  void _handlePagedWheelScroll(double deltaY) {
+    _applyAnimatedScrollDelta(deltaY);
   }
 
   void _handlePagedWheelEdgePush(_PagedWheelEdge direction) {
@@ -2338,6 +2454,7 @@ class _ReaderPageState extends State<_ReaderPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportSize = _effectiveViewportSize(constraints);
