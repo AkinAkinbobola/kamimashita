@@ -16,6 +16,10 @@ import '../widgets/theme.dart';
 
 enum ReaderFitMode { contain, fitWidth, fitHeight, originalSize }
 
+enum _PagedScrollResetAnchor { top, bottom }
+
+enum _PagedWheelEdge { top, bottom }
+
 class _StaleReaderLoadException implements Exception {
   const _StaleReaderLoadException();
 }
@@ -40,9 +44,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   Timer? _chromeHideTimer;
   Timer? _progressSyncTimer;
 
-  bool _showChrome = true;
+  bool _isControlsVisible = true;
   bool _autoHideChrome = true;
   bool _showSettingsPopover = false;
+  bool _isHoveringControls = false;
   bool _continuousScroll = false;
   bool _rightToLeft = false;
   bool _isFullscreen = false;
@@ -54,11 +59,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   bool _pendingVisibilityUpdate = false;
   bool _didApplyStoredPreferences = false;
   DateTime? _lastPagedWheelPageTurnAt;
-  double _pagedZoomScale = 1.0;
+  double _zoomLevel = 1.0;
+  int _pagedScrollResetToken = 0;
+  _PagedScrollResetAnchor _pagedScrollResetAnchor = _PagedScrollResetAnchor.top;
   ReaderFitMode _fitMode = ReaderFitMode.contain;
   List<String> _pageUrls = const [];
   List<GlobalKey> _pageKeys = const [];
-  List<GlobalKey<_ReaderPageState>> _pagedPageKeys = const [];
   Map<String, ImageProvider<Object>> _pageImageProviders = {};
 
   @override
@@ -74,7 +80,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _readerFocusNode.requestFocus();
-        _scheduleChromeHide();
+        _scheduleControlsHide();
         _loadFullscreenState();
       }
     });
@@ -104,7 +110,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       _isFullscreen = true;
     });
     unawaited(SettingsModel.instance.updateReaderPreferences(fullscreen: true));
-    _revealChrome();
   }
 
   @override
@@ -118,7 +123,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     unawaited(
       SettingsModel.instance.updateReaderPreferences(fullscreen: false),
     );
-    _revealChrome();
   }
 
   void _handleSettingsChanged() {
@@ -138,7 +142,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         _continuousScroll = settings.readerContinuousScroll;
         _rightToLeft = settings.readerRightToLeft;
         _autoHideChrome = settings.readerAutoHideChrome;
-        _showChrome = true;
+        _isControlsVisible = true;
       });
     }
 
@@ -148,7 +152,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       }
       _syncModeViewport(_currentPage, animate: false);
       if (_autoHideChrome) {
-        _scheduleChromeHide();
+        _scheduleControlsHide();
       } else {
         _chromeHideTimer?.cancel();
       }
@@ -245,10 +249,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _pageController = PageController(initialPage: initialPage);
     _currentPage = initialPage;
     _pageKeys = List<GlobalKey>.generate(pageUrls.length, (_) => GlobalKey());
-    _pagedPageKeys = List<GlobalKey<_ReaderPageState>>.generate(
-      pageUrls.length,
-      (_) => GlobalKey<_ReaderPageState>(),
-    );
     _lastSyncedPage = null;
     _pendingProgressPage = null;
     _pageUrls = pageUrls;
@@ -335,45 +335,60 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     };
   }
 
-  void _revealChrome({bool resetTimer = true}) {
+  void _handleReaderMouseMovement() {
     if (!mounted) {
       return;
     }
-    if (!_showChrome) {
+    if (!_isControlsVisible) {
       setState(() {
-        _showChrome = true;
+        _isControlsVisible = true;
       });
     }
-    if (resetTimer) {
-      _scheduleChromeHide();
-    }
+    _scheduleControlsHide();
   }
 
-  void _scheduleChromeHide() {
+  void _scheduleControlsHide() {
     _chromeHideTimer?.cancel();
-    if (!_autoHideChrome || _showSettingsPopover) {
+    if (!_autoHideChrome ||
+        _showSettingsPopover ||
+        _isHoveringControls ||
+        !_isControlsVisible) {
       return;
     }
     _chromeHideTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted || !_autoHideChrome || _showSettingsPopover) {
+      if (!mounted ||
+          !_autoHideChrome ||
+          _showSettingsPopover ||
+          _isHoveringControls) {
         return;
       }
       setState(() {
-        _showChrome = false;
+        _isControlsVisible = false;
       });
     });
   }
 
-  void _toggleControls() {
-    if (_showChrome) {
-      _chromeHideTimer?.cancel();
-      setState(() {
-        _showChrome = false;
-        _showSettingsPopover = false;
-      });
+  void _setControlsHovering(bool value) {
+    if (_isHoveringControls == value) {
       return;
     }
-    _revealChrome();
+    _isHoveringControls = value;
+    if (value) {
+      _chromeHideTimer?.cancel();
+      return;
+    }
+    _scheduleControlsHide();
+  }
+
+  void _toggleControls() {
+    _chromeHideTimer?.cancel();
+    setState(() {
+      _isControlsVisible = !_isControlsVisible;
+      if (!_isControlsVisible) {
+        _showSettingsPopover = false;
+      }
+    });
+    _scheduleControlsHide();
   }
 
   void _closeSettingsPopover() {
@@ -382,21 +397,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     }
     setState(() {
       _showSettingsPopover = false;
-      _showChrome = true;
     });
-    _scheduleChromeHide();
+    _scheduleControlsHide();
   }
 
   void _toggleSettingsPopover() {
     setState(() {
       _showSettingsPopover = !_showSettingsPopover;
-      _showChrome = true;
+      _isControlsVisible = true;
     });
-    _scheduleChromeHide();
+    _scheduleControlsHide();
   }
 
   void _retry() {
-    _revealChrome();
     setState(() {
       _reloadToken += 1;
       _showSettingsPopover = false;
@@ -412,24 +425,40 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (_continuousScroll) {
       _scrollToPage(clamped, animate: true);
     } else {
-      _rememberCurrentPagedZoom();
+      _preparePagedScrollReset(
+        _isReadingForwardTarget(clamped)
+            ? _PagedScrollResetAnchor.top
+            : _PagedScrollResetAnchor.bottom,
+      );
       _pageController?.jumpToPage(clamped);
     }
   }
 
-  void _rememberCurrentPagedZoom() {
-    if (_continuousScroll ||
-        _currentPage < 0 ||
-        _currentPage >= _pagedPageKeys.length) {
+  bool _isReadingForwardTarget(int targetPage) {
+    return _rightToLeft ? targetPage < _currentPage : targetPage > _currentPage;
+  }
+
+  void _preparePagedScrollReset(_PagedScrollResetAnchor anchor) {
+    _pagedScrollResetToken += 1;
+    _pagedScrollResetAnchor = anchor;
+  }
+
+  void _setZoomLevel(double value) {
+    final clamped = value.clamp(0.3, 5.0);
+    if (_zoomLevel == clamped) {
       return;
     }
+    setState(() {
+      _zoomLevel = clamped;
+    });
+  }
 
-    final currentState = _pagedPageKeys[_currentPage].currentState;
-    if (currentState == null) {
-      return;
-    }
+  void _adjustZoomLevel(double delta) {
+    _setZoomLevel(_zoomLevel + delta);
+  }
 
-    _pagedZoomScale = currentState.currentScale;
+  void _resetZoomLevel() {
+    _setZoomLevel(1.0);
   }
 
   bool _consumePagedWheelNavigationCooldown() {
@@ -470,7 +499,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final targetPage = _currentPage;
     setState(() {
       _continuousScroll = value;
-      _pagedZoomScale = 1.0;
+      _zoomLevel = 1.0;
     });
     unawaited(
       SettingsModel.instance.updateReaderPreferences(continuousScroll: value),
@@ -480,7 +509,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         return;
       }
       _syncModeViewport(targetPage, animate: false);
-      _revealChrome();
     });
   }
 
@@ -567,10 +595,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (_currentPage != index && mounted) {
       setState(() {
         _currentPage = index;
-        _pagedPageKeys = List<GlobalKey<_ReaderPageState>>.generate(
-          _pageUrls.length,
-          (_) => GlobalKey<_ReaderPageState>(),
-        );
       });
     }
     _recordOnDeckEntry(widget.archive.title, index + 1, _pageUrls.length);
@@ -720,7 +744,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     unawaited(
       SettingsModel.instance.updateReaderPreferences(fullscreen: nextValue),
     );
-    _revealChrome();
   }
 
   void _exitReader() {
@@ -735,28 +758,69 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return KeyEventResult.ignored;
     }
 
+    void goBackward() {
+      _goPreviousPage(document);
+    }
+
+    void goForward() {
+      _goNextPage(document);
+    }
+
     switch (event.logicalKey) {
       case LogicalKeyboardKey.arrowLeft:
-      case LogicalKeyboardKey.arrowUp:
-      case LogicalKeyboardKey.pageUp:
-        _goPreviousPage(document);
+        if (_continuousScroll) {
+          return KeyEventResult.ignored;
+        }
+        if (_rightToLeft) {
+          goForward();
+        } else {
+          goBackward();
+        }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowRight:
+        if (_continuousScroll) {
+          return KeyEventResult.ignored;
+        }
+        if (_rightToLeft) {
+          goBackward();
+        } else {
+          goForward();
+        }
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.arrowUp:
+      case LogicalKeyboardKey.pageUp:
+        if (_continuousScroll) {
+          return KeyEventResult.ignored;
+        }
+        goBackward();
+        return KeyEventResult.handled;
       case LogicalKeyboardKey.arrowDown:
       case LogicalKeyboardKey.pageDown:
-        _goNextPage(document);
+        if (_continuousScroll) {
+          return KeyEventResult.ignored;
+        }
+        goForward();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.keyA:
-        _goPreviousPage(document);
+        if (_continuousScroll) {
+          return KeyEventResult.ignored;
+        }
+        goBackward();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.keyD:
-        _goNextPage(document);
+        if (_continuousScroll) {
+          return KeyEventResult.ignored;
+        }
+        goForward();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.space:
+        if (_continuousScroll) {
+          return KeyEventResult.ignored;
+        }
         if (HardwareKeyboard.instance.isShiftPressed) {
-          _goPreviousPage(document);
+          goBackward();
         } else {
-          _goNextPage(document);
+          goForward();
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.keyM:
@@ -769,13 +833,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         if (_showSettingsPopover) {
           setState(() {
             _showSettingsPopover = false;
-            _showChrome = true;
           });
-          _scheduleChromeHide();
-          return KeyEventResult.handled;
-        }
-        if (!_showChrome) {
-          _toggleControls();
+          _scheduleControlsHide();
           return KeyEventResult.handled;
         }
         if (_isFullscreen) {
@@ -844,7 +903,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
             final document = snapshot.data!;
             final pageCount = document.pageUrls.length;
-            final chromeVisible = _showChrome || _showSettingsPopover;
+            final controlsVisible = _isControlsVisible || _showSettingsPopover;
             final pageController =
                 _pageController ??
                 PageController(initialPage: document.initialPage);
@@ -853,183 +912,210 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               focusNode: _readerFocusNode,
               autofocus: true,
               onKeyEvent: (node, event) => _handleKeyEvent(event, document),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.black,
-                      child: _continuousScroll
-                          ? NotificationListener<ScrollNotification>(
-                              onNotification: (notification) {
-                                if (notification is ScrollUpdateNotification ||
-                                    notification is ScrollEndNotification) {
-                                  _scheduleVisiblePageUpdate();
-                                }
-                                return false;
-                              },
-                              child: Container(
-                                key: _scrollViewportKey,
-                                child: _Scrollbarless(
-                                  child: ListView.builder(
-                                    key: ValueKey('scroll-$_reloadToken'),
-                                    controller: _scrollController,
-                                    cacheExtent:
-                                        MediaQuery.sizeOf(context).height * 1.5,
-                                    itemCount: pageCount,
-                                    itemBuilder: (context, index) {
-                                      return KeyedSubtree(
-                                        key: _pageKeys[index],
-                                        child: _ReaderPage(
-                                          imageProvider: _pageImageProvider(
-                                            document.archive.id,
-                                            index + 1,
-                                            document.pageUrls[index],
-                                            headers,
+              child: MouseRegion(
+                onEnter: (_) => _handleReaderMouseMovement(),
+                onHover: (_) => _handleReaderMouseMovement(),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: Colors.black,
+                        child: _continuousScroll
+                            ? NotificationListener<ScrollNotification>(
+                                onNotification: (notification) {
+                                  if (notification
+                                          is ScrollUpdateNotification ||
+                                      notification is ScrollEndNotification) {
+                                    _scheduleVisiblePageUpdate();
+                                  }
+                                  return false;
+                                },
+                                child: Container(
+                                  key: _scrollViewportKey,
+                                  child: _Scrollbarless(
+                                    child: ListView.builder(
+                                      key: ValueKey('scroll-$_reloadToken'),
+                                      controller: _scrollController,
+                                      cacheExtent:
+                                          MediaQuery.sizeOf(context).height *
+                                          1.5,
+                                      itemCount: pageCount,
+                                      itemBuilder: (context, index) {
+                                        return KeyedSubtree(
+                                          key: _pageKeys[index],
+                                          child: _ReaderPage(
+                                            imageProvider: _pageImageProvider(
+                                              document.archive.id,
+                                              index + 1,
+                                              document.pageUrls[index],
+                                              headers,
+                                            ),
+                                            pageNumber: index + 1,
+                                            fitMode: ReaderFitMode.fitWidth,
+                                            zoomEnabled: true,
+                                            zoomLevel: _zoomLevel,
+                                            continuousLayout: true,
+                                            onZoomLevelChanged: _setZoomLevel,
+                                            onInteraction: null,
+                                            onRetryRequested: _retry,
                                           ),
-                                          pageNumber: index + 1,
-                                          fitMode: _fitMode,
-                                          zoomEnabled: false,
-                                          onInteraction: _revealChrome,
-                                          onRetryRequested: _retry,
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                            )
-                          : PageView.builder(
-                              key: ValueKey(
-                                'pageview-$_reloadToken-$_rightToLeft',
-                              ),
-                              controller: pageController,
-                              reverse: _rightToLeft,
-                              itemCount: pageCount,
-                              onPageChanged: (index) {
-                                _rememberCurrentPagedZoom();
-                                _setCurrentPage(index, document.archive.id);
-                              },
-                              itemBuilder: (context, index) {
-                                return _ReaderPage(
-                                  key: _pagedPageKeys[index],
-                                  imageProvider: _pageImageProvider(
-                                    document.archive.id,
-                                    index + 1,
-                                    document.pageUrls[index],
-                                    headers,
-                                  ),
-                                  pageNumber: index + 1,
-                                  fitMode: _fitMode,
-                                  zoomEnabled: true,
-                                  zoomScale: _pagedZoomScale,
-                                  pagedNavigationEnabled: true,
-                                  onNextPageRequested: () =>
-                                      _goNextPage(document, fromWheel: false),
-                                  onPreviousPageRequested: () =>
-                                      _goPreviousPage(
-                                        document,
-                                        fromWheel: false,
-                                      ),
-                                  onNextPageFromWheelRequested: () =>
-                                      _goNextPage(document, fromWheel: true),
-                                  onPreviousPageFromWheelRequested: () =>
-                                      _goPreviousPage(
-                                        document,
-                                        fromWheel: true,
-                                      ),
-                                  onToggleControlsRequested: _toggleControls,
-                                  onInteraction: null,
-                                  onRetryRequested: _retry,
-                                );
-                              },
-                            ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: IgnorePointer(
-                      ignoring: !chromeVisible,
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 180),
-                        opacity: chromeVisible ? 1 : 0,
-                        child: SafeArea(
-                          bottom: false,
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: const Color(0xB3101217),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: const Color(0xFF252B36),
-                                  width: 0.5,
-                                ),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 8,
-                                ),
-                                child: Row(
-                                  children: [
-                                    _ReaderBarButton(
-                                      tooltip: 'Exit reader',
-                                      icon: Icons.arrow_back_rounded,
-                                      onPressed: _exitReader,
+                                        );
+                                      },
                                     ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            document.archive.title,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.titleMedium
-                                                ?.copyWith(color: Colors.white),
+                                  ),
+                                ),
+                              )
+                            : PageView.builder(
+                                key: ValueKey(
+                                  'pageview-$_reloadToken-$_rightToLeft',
+                                ),
+                                controller: pageController,
+                                reverse: _rightToLeft,
+                                itemCount: pageCount,
+                                onPageChanged: (index) {
+                                  _setCurrentPage(index, document.archive.id);
+                                },
+                                itemBuilder: (context, index) {
+                                  return _ReaderPage(
+                                    key: ValueKey('paged-$index'),
+                                    imageProvider: _pageImageProvider(
+                                      document.archive.id,
+                                      index + 1,
+                                      document.pageUrls[index],
+                                      headers,
+                                    ),
+                                    pageNumber: index + 1,
+                                    fitMode: _fitMode,
+                                    zoomEnabled: true,
+                                    zoomLevel: _zoomLevel,
+                                    isActive: index == _currentPage,
+                                    pagedNavigationEnabled: true,
+                                    pagedScrollResetToken:
+                                        _pagedScrollResetToken,
+                                    pagedScrollResetAnchor:
+                                        _pagedScrollResetAnchor,
+                                    onNextPageRequested: () =>
+                                        _goNextPage(document, fromWheel: false),
+                                    onPreviousPageRequested: () =>
+                                        _goPreviousPage(
+                                          document,
+                                          fromWheel: false,
+                                        ),
+                                    onNextPageFromWheelRequested: () =>
+                                        _goNextPage(document, fromWheel: true),
+                                    onPreviousPageFromWheelRequested: () =>
+                                        _goPreviousPage(
+                                          document,
+                                          fromWheel: true,
+                                        ),
+                                    onZoomLevelChanged: _setZoomLevel,
+                                    onToggleControlsRequested: _toggleControls,
+                                    onInteraction: null,
+                                    onRetryRequested: _retry,
+                                  );
+                                },
+                              ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: MouseRegion(
+                        onEnter: (_) => _setControlsHovering(true),
+                        onExit: (_) => _setControlsHovering(false),
+                        child: IgnorePointer(
+                          ignoring: !controlsVisible,
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 180),
+                            opacity: controlsVisible ? 1 : 0,
+                            child: SafeArea(
+                              bottom: false,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  12,
+                                  12,
+                                  0,
+                                ),
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xB3101217),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(
+                                      color: const Color(0xFF252B36),
+                                      width: 0.5,
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        _ReaderBarButton(
+                                          tooltip: 'Exit reader',
+                                          icon: Icons.arrow_back_rounded,
+                                          onPressed: _exitReader,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                document.archive.title,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: theme
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(
+                                                      color: Colors.white,
+                                                    ),
+                                              ),
+                                              Text(
+                                                '${_currentPage + 1} / $pageCount',
+                                                style: theme.textTheme.bodySmall
+                                                    ?.copyWith(
+                                                      color: Colors.white70,
+                                                    ),
+                                              ),
+                                            ],
                                           ),
-                                          Text(
-                                            '${_currentPage + 1} / $pageCount',
-                                            style: theme.textTheme.bodySmall
-                                                ?.copyWith(
-                                                  color: Colors.white70,
-                                                ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        _ReaderBarButton(
+                                          tooltip: 'Reader settings',
+                                          icon: Icons.tune_rounded,
+                                          onPressed: _toggleSettingsPopover,
+                                          active: _showSettingsPopover,
+                                        ),
+                                        if (_supportsWindowFullscreen) ...[
+                                          const SizedBox(width: 4),
+                                          _ReaderBarButton(
+                                            tooltip: _isFullscreen
+                                                ? 'Exit fullscreen'
+                                                : 'Fullscreen',
+                                            icon: _isFullscreen
+                                                ? Icons.fullscreen_exit_rounded
+                                                : Icons.fullscreen_rounded,
+                                            onPressed: _toggleFullscreen,
+                                            active: _isFullscreen,
                                           ),
                                         ],
-                                      ),
+                                        const SizedBox(width: 4),
+                                        _ReaderBarButton(
+                                          tooltip: 'Reload pages',
+                                          icon: Icons.refresh_rounded,
+                                          onPressed: _retry,
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(width: 8),
-                                    _ReaderBarButton(
-                                      tooltip: 'Reader settings',
-                                      icon: Icons.tune_rounded,
-                                      onPressed: _toggleSettingsPopover,
-                                      active: _showSettingsPopover,
-                                    ),
-                                    if (_supportsWindowFullscreen) ...[
-                                      const SizedBox(width: 4),
-                                      _ReaderBarButton(
-                                        tooltip: _isFullscreen
-                                            ? 'Exit fullscreen'
-                                            : 'Fullscreen',
-                                        icon: _isFullscreen
-                                            ? Icons.fullscreen_exit_rounded
-                                            : Icons.fullscreen_rounded,
-                                        onPressed: _toggleFullscreen,
-                                        active: _isFullscreen,
-                                      ),
-                                    ],
-                                    const SizedBox(width: 4),
-                                    _ReaderBarButton(
-                                      tooltip: 'Reload pages',
-                                      icon: Icons.refresh_rounded,
-                                      onPressed: _retry,
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -1037,156 +1123,177 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                         ),
                       ),
                     ),
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    child: IgnorePointer(
-                      ignoring: !chromeVisible,
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 180),
-                        opacity: chromeVisible ? 1 : 0,
-                        child: SafeArea(
-                          top: false,
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: const Color(0xB3101217),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: const Color(0xFF252B36),
-                                  width: 0.5,
-                                ),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
-                                ),
-                                child: Row(
-                                  children: [
-                                    _ReaderBarButton(
-                                      tooltip: 'Previous page',
-                                      icon: Icons.chevron_left_rounded,
-                                      onPressed:
-                                          _canGoReadingBackward(pageCount)
-                                          ? () => _goReadingBackward(document)
-                                          : null,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: SliderTheme(
-                                        data: SliderTheme.of(context).copyWith(
-                                          trackHeight: 3,
-                                          overlayShape:
-                                              SliderComponentShape.noOverlay,
-                                          activeTrackColor: AppTheme.crimson,
-                                          inactiveTrackColor: Colors.white24,
-                                          thumbColor: Colors.white,
-                                        ),
-                                        child: Slider(
-                                          min: 0,
-                                          max: (pageCount - 1).toDouble(),
-                                          value: _currentPage
-                                              .clamp(0, pageCount - 1)
-                                              .toDouble(),
-                                          onChanged: (value) {
-                                            _jumpToPage(
-                                              value.round(),
-                                              document,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '${_currentPage + 1} / $pageCount',
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(color: Colors.white70),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    _ReaderBarButton(
-                                      tooltip: 'Next page',
-                                      icon: Icons.chevron_right_rounded,
-                                      onPressed: _canGoReadingForward(pageCount)
-                                          ? () => _goReadingForward(document)
-                                          : null,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (_showSettingsPopover)
-                    Positioned.fill(
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: _closeSettingsPopover,
-                        child: const SizedBox.expand(),
-                      ),
-                    ),
-                  if (_showSettingsPopover)
                     Positioned(
-                      top: 76,
-                      right: 16,
-                      child: SafeArea(
-                        bottom: false,
-                        child: _ReaderSettingsPopover(
-                          fitMode: _fitMode,
-                          continuousScroll: _continuousScroll,
-                          rightToLeft: _rightToLeft,
-                          autoHideChrome: _autoHideChrome,
-                          onFitModeChanged: (mode) {
-                            setState(() {
-                              _fitMode = mode;
-                              _pagedZoomScale = 1.0;
-                            });
-                            unawaited(
-                              SettingsModel.instance.updateReaderPreferences(
-                                fitMode: mode.name,
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      child: MouseRegion(
+                        onEnter: (_) => _setControlsHovering(true),
+                        onExit: (_) => _setControlsHovering(false),
+                        child: IgnorePointer(
+                          ignoring: !controlsVisible,
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 180),
+                            opacity: controlsVisible ? 1 : 0,
+                            child: SafeArea(
+                              top: false,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  0,
+                                  12,
+                                  12,
+                                ),
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xB3101217),
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(
+                                      color: const Color(0xFF252B36),
+                                      width: 0.5,
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        _ReaderBarButton(
+                                          tooltip: 'Previous page',
+                                          icon: Icons.chevron_left_rounded,
+                                          onPressed:
+                                              _canGoReadingBackward(pageCount)
+                                              ? () =>
+                                                    _goReadingBackward(document)
+                                              : null,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: SliderTheme(
+                                            data: SliderTheme.of(context)
+                                                .copyWith(
+                                                  trackHeight: 3,
+                                                  overlayShape:
+                                                      SliderComponentShape
+                                                          .noOverlay,
+                                                  activeTrackColor:
+                                                      AppTheme.crimson,
+                                                  inactiveTrackColor:
+                                                      Colors.white24,
+                                                  thumbColor: Colors.white,
+                                                ),
+                                            child: Slider(
+                                              min: 0,
+                                              max: (pageCount - 1).toDouble(),
+                                              value: _currentPage
+                                                  .clamp(0, pageCount - 1)
+                                                  .toDouble(),
+                                              onChanged: (value) {
+                                                _jumpToPage(
+                                                  value.round(),
+                                                  document,
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          '${_currentPage + 1} / $pageCount',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(color: Colors.white70),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        _ReaderZoomControl(
+                                          zoomLevel: _zoomLevel,
+                                          onZoomOut: () =>
+                                              _adjustZoomLevel(-0.1),
+                                          onZoomReset: _resetZoomLevel,
+                                          onZoomIn: () => _adjustZoomLevel(0.1),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        _ReaderBarButton(
+                                          tooltip: 'Next page',
+                                          icon: Icons.chevron_right_rounded,
+                                          onPressed:
+                                              _canGoReadingForward(pageCount)
+                                              ? () =>
+                                                    _goReadingForward(document)
+                                              : null,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
-                            );
-                            _revealChrome();
-                          },
-                          onContinuousScrollChanged: _setContinuousScroll,
-                          onRightToLeftChanged: (value) {
-                            setState(() {
-                              _rightToLeft = value;
-                            });
-                            unawaited(
-                              SettingsModel.instance.updateReaderPreferences(
-                                rightToLeft: value,
-                              ),
-                            );
-                            _revealChrome();
-                          },
-                          onAutoHideChanged: (value) {
-                            setState(() {
-                              _autoHideChrome = value;
-                              _showChrome = true;
-                            });
-                            unawaited(
-                              SettingsModel.instance.updateReaderPreferences(
-                                autoHideChrome: value,
-                              ),
-                            );
-                            if (value) {
-                              _scheduleChromeHide();
-                            } else {
-                              _chromeHideTimer?.cancel();
-                            }
-                          },
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                ],
+                    if (_showSettingsPopover)
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _closeSettingsPopover,
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
+                    if (_showSettingsPopover)
+                      Positioned(
+                        top: 76,
+                        right: 16,
+                        child: SafeArea(
+                          bottom: false,
+                          child: _ReaderSettingsPopover(
+                            fitMode: _fitMode,
+                            continuousScroll: _continuousScroll,
+                            rightToLeft: _rightToLeft,
+                            autoHideChrome: _autoHideChrome,
+                            onFitModeChanged: (mode) {
+                              setState(() {
+                                _fitMode = mode;
+                                _zoomLevel = 1.0;
+                              });
+                              unawaited(
+                                SettingsModel.instance.updateReaderPreferences(
+                                  fitMode: mode.name,
+                                ),
+                              );
+                            },
+                            onContinuousScrollChanged: _setContinuousScroll,
+                            onRightToLeftChanged: (value) {
+                              setState(() {
+                                _rightToLeft = value;
+                              });
+                              unawaited(
+                                SettingsModel.instance.updateReaderPreferences(
+                                  rightToLeft: value,
+                                ),
+                              );
+                            },
+                            onAutoHideChanged: (value) {
+                              setState(() {
+                                _autoHideChrome = value;
+                              });
+                              unawaited(
+                                SettingsModel.instance.updateReaderPreferences(
+                                  autoHideChrome: value,
+                                ),
+                              );
+                              if (value) {
+                                _scheduleControlsHide();
+                              } else {
+                                _chromeHideTimer?.cancel();
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             );
           },
@@ -1471,6 +1578,116 @@ class _ReaderTextToggleState extends State<_ReaderTextToggle> {
   }
 }
 
+class _ReaderZoomControl extends StatelessWidget {
+  const _ReaderZoomControl({
+    required this.zoomLevel,
+    required this.onZoomOut,
+    required this.onZoomReset,
+    required this.onZoomIn,
+  });
+
+  final double zoomLevel;
+  final VoidCallback onZoomOut;
+  final VoidCallback onZoomReset;
+  final VoidCallback onZoomIn;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final percentage = (zoomLevel * 100).round();
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF161A21),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFF252B36), width: 0.5),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _ReaderZoomButton(
+              tooltip: 'Zoom out',
+              label: '-',
+              onPressed: onZoomOut,
+            ),
+            GestureDetector(
+              onTap: onZoomReset,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Text(
+                  '$percentage%',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            _ReaderZoomButton(
+              tooltip: 'Zoom in',
+              label: '+',
+              onPressed: onZoomIn,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReaderZoomButton extends StatefulWidget {
+  const _ReaderZoomButton({
+    required this.tooltip,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  State<_ReaderZoomButton> createState() => _ReaderZoomButtonState();
+}
+
+class _ReaderZoomButtonState extends State<_ReaderZoomButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _hovered ? Colors.white : Colors.white70;
+
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onPressed,
+          behavior: HitTestBehavior.opaque,
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: Center(
+              child: Text(
+                widget.label,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ReaderPage extends StatefulWidget {
   const _ReaderPage({
     super.key,
@@ -1478,12 +1695,17 @@ class _ReaderPage extends StatefulWidget {
     required this.pageNumber,
     required this.fitMode,
     required this.zoomEnabled,
-    this.zoomScale = 1.0,
+    this.zoomLevel = 1.0,
+    this.continuousLayout = false,
+    this.isActive = false,
     this.pagedNavigationEnabled = false,
+    this.pagedScrollResetToken,
+    this.pagedScrollResetAnchor,
     this.onNextPageRequested,
     this.onPreviousPageRequested,
     this.onNextPageFromWheelRequested,
     this.onPreviousPageFromWheelRequested,
+    this.onZoomLevelChanged,
     this.onToggleControlsRequested,
     required this.onInteraction,
     required this.onRetryRequested,
@@ -1493,12 +1715,17 @@ class _ReaderPage extends StatefulWidget {
   final int pageNumber;
   final ReaderFitMode fitMode;
   final bool zoomEnabled;
-  final double zoomScale;
+  final double zoomLevel;
+  final bool continuousLayout;
+  final bool isActive;
   final bool pagedNavigationEnabled;
+  final int? pagedScrollResetToken;
+  final _PagedScrollResetAnchor? pagedScrollResetAnchor;
   final VoidCallback? onNextPageRequested;
   final VoidCallback? onPreviousPageRequested;
   final VoidCallback? onNextPageFromWheelRequested;
   final VoidCallback? onPreviousPageFromWheelRequested;
+  final ValueChanged<double>? onZoomLevelChanged;
   final VoidCallback? onToggleControlsRequested;
   final VoidCallback? onInteraction;
   final VoidCallback onRetryRequested;
@@ -1522,19 +1749,22 @@ class _Scrollbarless extends StatelessWidget {
 }
 
 class _ReaderPageState extends State<_ReaderPage> {
-  final TransformationController _transformationController =
-      TransformationController();
+  static const _desktopGestureDevices = <PointerDeviceKind>{
+    PointerDeviceKind.mouse,
+  };
+
+  final ScrollController _verticalScrollController = ScrollController();
   ImageStream? _imageStream;
   ImageStreamListener? _imageStreamListener;
   ImageInfo? _imageInfo;
   Object? _imageError;
-  double _lastReportedScale = 1.0;
+  _PagedWheelEdge? _armedWheelEdge;
+  _PagedScrollResetAnchor? _pendingPagedScrollResetAnchor;
 
-  @override
-  void initState() {
-    super.initState();
-    _transformationController.value = _matrixForScale(widget.zoomScale);
-    _transformationController.addListener(_handleTransformationChanged);
+  int get _pagedScrollResetToken => widget.pagedScrollResetToken ?? 0;
+
+  _PagedScrollResetAnchor get _pagedScrollResetAnchor {
+    return widget.pagedScrollResetAnchor ?? _PagedScrollResetAnchor.top;
   }
 
   @override
@@ -1546,13 +1776,17 @@ class _ReaderPageState extends State<_ReaderPage> {
   @override
   void didUpdateWidget(covariant _ReaderPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.fitMode != widget.fitMode ||
-        oldWidget.zoomEnabled != widget.zoomEnabled ||
-        oldWidget.zoomScale != widget.zoomScale) {
-      _transformationController.value = _matrixForScale(widget.zoomScale);
-    }
     if (oldWidget.imageProvider != widget.imageProvider) {
       _resolveImage(force: true);
+    }
+    if (widget.pagedNavigationEnabled &&
+        widget.isActive &&
+        oldWidget.pagedScrollResetToken != _pagedScrollResetToken) {
+      _pendingPagedScrollResetAnchor = _pagedScrollResetAnchor;
+      _schedulePagedScrollReset();
+    }
+    if (!widget.isActive) {
+      _armedWheelEdge = null;
     }
   }
 
@@ -1561,23 +1795,11 @@ class _ReaderPageState extends State<_ReaderPage> {
     if (_imageStream != null && _imageStreamListener != null) {
       _imageStream!.removeListener(_imageStreamListener!);
     }
-    _transformationController.removeListener(_handleTransformationChanged);
-    _transformationController.dispose();
+    _verticalScrollController.dispose();
     super.dispose();
   }
 
-  double get currentScale => _currentScale.clamp(1.0, 4.0);
-
-  void _handleTransformationChanged() {
-    final scale = currentScale;
-    if ((scale - _lastReportedScale).abs() <= 0.001) {
-      return;
-    }
-    _lastReportedScale = scale;
-    if (mounted) {
-      setState(() {});
-    }
-  }
+  double get zoomLevel => widget.zoomLevel.clamp(0.3, 5.0);
 
   void _resolveImage({bool force = false}) {
     final stream = widget.imageProvider.resolve(
@@ -1604,6 +1826,9 @@ class _ReaderPageState extends State<_ReaderPage> {
           _imageInfo = imageInfo;
           _imageError = null;
         });
+        if (_pendingPagedScrollResetAnchor != null) {
+          _schedulePagedScrollReset();
+        }
       },
       onError: (error, _) {
         if (!mounted) {
@@ -1618,53 +1843,59 @@ class _ReaderPageState extends State<_ReaderPage> {
     _imageStream!.addListener(_imageStreamListener!);
   }
 
-  Matrix4 _matrixForScale(double scale) {
-    final clampedScale = scale.clamp(1.0, 4.0);
-    return Matrix4.identity()..scale(clampedScale);
-  }
-
   void _resetZoom() {
-    _transformationController.value = Matrix4.identity();
+    widget.onZoomLevelChanged?.call(1.0);
   }
 
-  double get _currentScale =>
-      _transformationController.value.getMaxScaleOnAxis();
+  void _schedulePagedScrollReset() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _applyPendingPagedScrollReset();
+    });
+  }
 
-  bool get _canPanZoomedImage => _currentScale > 1.01;
-
-  bool get _useConstrainedViewer => widget.fitMode == ReaderFitMode.contain;
-
-  void _applyScaleAroundPoint(double scale, Offset focalPoint) {
-    final clampedScale = scale.clamp(1.0, 4.0);
-    if (clampedScale <= 1.0) {
-      _resetZoom();
+  void _applyPendingPagedScrollReset() {
+    final anchor = _pendingPagedScrollResetAnchor;
+    if (!mounted ||
+        anchor == null ||
+        !widget.pagedNavigationEnabled ||
+        !widget.isActive ||
+        !_verticalScrollController.hasClients) {
       return;
     }
 
-    final scenePoint = _transformationController.toScene(focalPoint);
-    _transformationController.value = Matrix4.identity()
-      ..translate(
-        focalPoint.dx - scenePoint.dx * clampedScale,
-        focalPoint.dy - scenePoint.dy * clampedScale,
-      )
-      ..scale(clampedScale);
+    if (anchor == _PagedScrollResetAnchor.bottom && _imageInfo == null) {
+      _schedulePagedScrollReset();
+      return;
+    }
+
+    _pendingPagedScrollResetAnchor = null;
+    _armedWheelEdge = null;
+    _verticalScrollController.jumpTo(
+      anchor == _PagedScrollResetAnchor.top
+          ? _verticalScrollController.position.minScrollExtent
+          : _verticalScrollController.position.maxScrollExtent,
+    );
   }
+
+  bool get _canPanZoomedImage => zoomLevel > 1.01;
 
   void _resetZoomToDefault() {
     if (!widget.zoomEnabled) {
       return;
     }
     _resetZoom();
-    widget.onInteraction?.call();
   }
 
   void _handlePagedViewportTap(TapUpDetails details, Size viewportSize) {
-    if (_canPanZoomedImage) {
-      return;
-    }
     final ratio = viewportSize.width <= 0
         ? 0.5
         : details.localPosition.dx / viewportSize.width;
+    if (_canPanZoomedImage) {
+      if (ratio >= 0.33 && ratio <= 0.67) {
+        widget.onToggleControlsRequested?.call();
+      }
+      return;
+    }
     if (ratio < 0.33) {
       widget.onPreviousPageRequested?.call();
       return;
@@ -1686,9 +1917,9 @@ class _ReaderPageState extends State<_ReaderPage> {
     }
 
     if (HardwareKeyboard.instance.isControlPressed && widget.zoomEnabled) {
-      final zoomFactor = math.exp(-deltaY / 240);
-      _applyScaleAroundPoint(_currentScale * zoomFactor, event.localPosition);
-      widget.onInteraction?.call();
+      final zoomDelta = -deltaY / 600;
+      final nextZoom = (widget.zoomLevel + zoomDelta).clamp(0.3, 5.0);
+      widget.onZoomLevelChanged?.call(nextZoom);
       return;
     }
 
@@ -1696,12 +1927,47 @@ class _ReaderPageState extends State<_ReaderPage> {
       return;
     }
 
-    if (deltaY > 0) {
-      widget.onNextPageFromWheelRequested?.call();
+    _handlePagedWheelScroll(deltaY);
+  }
+
+  void _handlePagedWheelScroll(double deltaY) {
+    final direction = deltaY > 0 ? _PagedWheelEdge.bottom : _PagedWheelEdge.top;
+
+    if (!_verticalScrollController.hasClients) {
+      _handlePagedWheelEdgePush(direction);
       return;
     }
 
-    widget.onPreviousPageFromWheelRequested?.call();
+    final position = _verticalScrollController.position;
+    final currentOffset = position.pixels;
+    final minOffset = position.minScrollExtent;
+    final maxOffset = position.maxScrollExtent;
+    final targetOffset = (currentOffset + deltaY).clamp(minOffset, maxOffset);
+
+    if ((targetOffset - currentOffset).abs() > 0.5) {
+      _verticalScrollController.jumpTo(targetOffset);
+      final hitEdge = direction == _PagedWheelEdge.bottom
+          ? targetOffset >= maxOffset - 0.5
+          : targetOffset <= minOffset + 0.5;
+      _armedWheelEdge = hitEdge ? direction : null;
+      return;
+    }
+
+    _handlePagedWheelEdgePush(direction);
+  }
+
+  void _handlePagedWheelEdgePush(_PagedWheelEdge direction) {
+    if (_armedWheelEdge == direction) {
+      _armedWheelEdge = null;
+      if (direction == _PagedWheelEdge.bottom) {
+        widget.onNextPageFromWheelRequested?.call();
+      } else {
+        widget.onPreviousPageFromWheelRequested?.call();
+      }
+      return;
+    }
+
+    _armedWheelEdge = direction;
   }
 
   Size _effectiveViewportSize(BoxConstraints constraints) {
@@ -1715,7 +1981,7 @@ class _ReaderPageState extends State<_ReaderPage> {
     return Size(width, height);
   }
 
-  ({Size size, Alignment alignment}) _resolveImageLayout(
+  ({Size baseSize, Alignment alignment}) _resolveImageLayout(
     BoxConstraints constraints,
   ) {
     final imageInfo = _imageInfo!;
@@ -1727,7 +1993,9 @@ class _ReaderPageState extends State<_ReaderPage> {
     final widthScale = viewport.width / intrinsic.width;
     final heightScale = viewport.height / intrinsic.height;
 
-    final fittedScale = switch (widget.fitMode) {
+    final fitModeScale = switch (widget.continuousLayout
+        ? ReaderFitMode.fitWidth
+        : widget.fitMode) {
       ReaderFitMode.contain => math.min(widthScale, heightScale),
       ReaderFitMode.fitWidth => widthScale,
       ReaderFitMode.fitHeight => heightScale,
@@ -1737,17 +2005,19 @@ class _ReaderPageState extends State<_ReaderPage> {
       ),
     };
 
-    final safeScale = fittedScale.isFinite && fittedScale > 0
-        ? fittedScale
+    final safeScale = fitModeScale.isFinite && fitModeScale > 0
+        ? fitModeScale
         : 1.0;
-    final size = Size(
+    final baseSize = Size(
       intrinsic.width * safeScale,
       intrinsic.height * safeScale,
     );
-    final alignment = size.height > viewport.height + 1
+    final alignment = widget.continuousLayout
+        ? Alignment.topCenter
+        : baseSize.height > viewport.height + 1
         ? Alignment.topCenter
         : Alignment.center;
-    return (size: size, alignment: alignment);
+    return (baseSize: baseSize, alignment: alignment);
   }
 
   Widget _buildLoadingState(BoxConstraints constraints) {
@@ -1844,6 +2114,19 @@ class _ReaderPageState extends State<_ReaderPage> {
 
     final layout = _resolveImageLayout(constraints);
     final viewport = _effectiveViewportSize(constraints);
+    final finalSize = Size(
+      layout.baseSize.width * zoomLevel,
+      layout.baseSize.height * zoomLevel,
+    );
+    final widthClampScale = finalSize.width > viewport.width
+        ? viewport.width / finalSize.width
+        : 1.0;
+    final displayWidth = finalSize.width * widthClampScale;
+    final displayHeight = finalSize.height * widthClampScale;
+    final contentWidth = viewport.width;
+    final contentHeight = widget.continuousLayout
+        ? displayHeight
+        : math.max(viewport.height, displayHeight);
     final image = RawImage(
       image: _imageInfo!.image,
       scale: _imageInfo!.scale,
@@ -1851,24 +2134,14 @@ class _ReaderPageState extends State<_ReaderPage> {
       filterQuality: FilterQuality.high,
     );
 
-    if (!_useConstrainedViewer) {
-      return SizedBox(
-        width: layout.size.width,
-        height: layout.size.height,
-        child: image,
-      );
-    }
-
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        minWidth: viewport.width,
-        minHeight: viewport.height,
-      ),
+    return SizedBox(
+      width: contentWidth,
+      height: contentHeight,
       child: Align(
         alignment: layout.alignment,
         child: SizedBox(
-          width: layout.size.width,
-          height: layout.size.height,
+          width: displayWidth,
+          height: displayHeight,
           child: image,
         ),
       ),
@@ -1881,19 +2154,29 @@ class _ReaderPageState extends State<_ReaderPage> {
       builder: (context, constraints) {
         final viewportSize = _effectiveViewportSize(constraints);
         final image = _buildImage(constraints);
-        final zoomableImage = widget.zoomEnabled
-            ? InteractiveViewer(
-                transformationController: _transformationController,
-                minScale: 1,
-                maxScale: 4,
-                panEnabled: _canPanZoomedImage,
-                scaleEnabled: true,
-                constrained: _useConstrainedViewer,
-                boundaryMargin: const EdgeInsets.all(80),
-                clipBehavior: Clip.none,
+        final zoomableImage = ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: SingleChildScrollView(
+            controller: _verticalScrollController,
+            scrollDirection: Axis.vertical,
+            child: image,
+          ),
+        );
+
+        if (widget.continuousLayout) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
+            child: Listener(
+              onPointerSignal: _handlePagedPointerSignal,
+              child: GestureDetector(
+                supportedDevices: _desktopGestureDevices,
+                onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
+                onTap: widget.onInteraction,
                 child: image,
-              )
-            : image;
+              ),
+            ),
+          );
+        }
 
         if (widget.pagedNavigationEnabled) {
           return Padding(
@@ -1901,11 +2184,33 @@ class _ReaderPageState extends State<_ReaderPage> {
             child: Listener(
               onPointerSignal: _handlePagedPointerSignal,
               child: GestureDetector(
+                supportedDevices: _desktopGestureDevices,
                 behavior: HitTestBehavior.opaque,
                 onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
                 onTapUp: (details) =>
                     _handlePagedViewportTap(details, viewportSize),
-                child: zoomableImage,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    zoomableImage,
+                    Align(
+                      alignment: Alignment.center,
+                      child: FractionallySizedBox(
+                        widthFactor: 0.34,
+                        heightFactor: 1,
+                        child: GestureDetector(
+                          supportedDevices: _desktopGestureDevices,
+                          behavior: HitTestBehavior.opaque,
+                          onTap: widget.onToggleControlsRequested,
+                          onDoubleTap: widget.zoomEnabled
+                              ? _resetZoomToDefault
+                              : null,
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -1914,6 +2219,7 @@ class _ReaderPageState extends State<_ReaderPage> {
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
           child: GestureDetector(
+            supportedDevices: _desktopGestureDevices,
             onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
             onTap: widget.onInteraction,
             child: Listener(
