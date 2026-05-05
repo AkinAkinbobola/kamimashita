@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 import '../api/lanraragi_client.dart';
 import '../models/archive.dart';
 import '../providers/client_provider.dart';
+import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/cover_card.dart';
 import '../widgets/theme.dart';
@@ -339,6 +340,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   void _recordOnDeckEntry(String title, int currentPage, int totalPages) {
+    ref
+        .read(libraryStateProvider)
+        .upsertOnDeckEntry(
+          archiveId: widget.archive.id,
+          title: title,
+          currentPage: currentPage,
+          totalPages: totalPages,
+        );
     unawaited(
       SettingsModel.instance.upsertOnDeckEntry(
         archiveId: widget.archive.id,
@@ -877,6 +886,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       client
           .updateArchiveProgress(archiveId, queuedPage + 1)
           .then((_) {
+            ref
+                .read(libraryStateProvider)
+                .updateArchiveProgress(archiveId, queuedPage + 1);
             return SettingsModel.instance.setUseLocalOnDeckFallback(false);
           })
           .catchError((error) {

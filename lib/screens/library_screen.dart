@@ -74,6 +74,35 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   bool get _isDetailsOpen => _selectedArchive != null;
 
+  void _handleLibraryStateChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    final libraryState = ref.read(libraryStateProvider);
+    final nextItems = libraryState.items;
+    final nextOnDeckEntries = libraryState.onDeckEntries;
+    final currentSelectedArchive = _selectedArchive;
+    final nextSelectedArchive = currentSelectedArchive == null
+        ? null
+        : nextItems.firstWhere(
+            (archive) => archive.id == currentSelectedArchive.id,
+            orElse: () => currentSelectedArchive,
+          );
+
+    if (listEquals(_items, nextItems) &&
+        listEquals(_sidebarOnDeckEntries, nextOnDeckEntries) &&
+        identical(_selectedArchive, nextSelectedArchive)) {
+      return;
+    }
+
+    setState(() {
+      _items = nextItems;
+      _sidebarOnDeckEntries = nextOnDeckEntries;
+      _selectedArchive = nextSelectedArchive;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -89,6 +118,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       }
       _reloadLibrary();
     });
+    ref.read(libraryStateProvider).addListener(_handleLibraryStateChanged);
     SettingsModel.instance.addListener(_onSettingsChanged);
     _controller.addListener(_onQueryChanged);
     _scrollController.addListener(_onScroll);
@@ -159,6 +189,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       windowManager.removeListener(this);
     }
     _libraryRefreshSubscription.close();
+    ref.read(libraryStateProvider).removeListener(_handleLibraryStateChanged);
     SettingsModel.instance.removeListener(_onSettingsChanged);
     _controller.removeListener(_onQueryChanged);
     _scrollController.removeListener(_onScroll);
@@ -319,6 +350,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _loadError = null;
       _loadMoreError = null;
     });
+    ref.read(libraryStateProvider).clearItems();
     await _loadMore(generation: generation, fromReload: true);
   }
 
@@ -376,6 +408,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         _loadError = null;
         _loadMoreError = null;
       });
+      ref.read(libraryStateProvider).setItems(_items);
       _prefetchThumbnails(newItems);
       _updateSuggestions();
     } catch (error) {
@@ -702,6 +735,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _selectedArchiveCategoryMessage = null;
       _selectedArchiveCategoryMessageIsError = false;
     });
+    final libraryState = ref.read(libraryStateProvider);
+    libraryState.clearItems();
+    libraryState.clearOnDeckEntries();
 
     try {
       await LanraragiClient(
@@ -879,6 +915,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           : null;
       _onDeckMessageIsError = false;
     });
+    ref.read(libraryStateProvider).setOnDeckEntries(entries);
   }
 
   Future<void> _refreshOnDeck() async {
@@ -923,6 +960,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             : null;
         _onDeckMessageIsError = false;
       });
+      ref.read(libraryStateProvider).setOnDeckEntries(entries);
     } catch (error) {
       if (!mounted) {
         return;
@@ -937,6 +975,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         );
         _onDeckMessageIsError = true;
       });
+      ref.read(libraryStateProvider).clearOnDeckEntries();
     }
   }
 

@@ -47,6 +47,34 @@ class Archive {
         .toList(growable: false);
   }
 
+  Archive copyWith({
+    String? id,
+    String? title,
+    String? coverUrl,
+    String? filename,
+    String? sourceUrl,
+    String? tags,
+    int? progress,
+    int? lastReadTime,
+    bool? isNew,
+    int? year,
+    int? pageCount,
+  }) {
+    return Archive(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      coverUrl: coverUrl ?? this.coverUrl,
+      filename: filename ?? this.filename,
+      sourceUrl: sourceUrl ?? this.sourceUrl,
+      tags: tags ?? this.tags,
+      progress: progress ?? this.progress,
+      lastReadTime: lastReadTime ?? this.lastReadTime,
+      isNew: isNew ?? this.isNew,
+      year: year ?? this.year,
+      pageCount: pageCount ?? this.pageCount,
+    );
+  }
+
   factory Archive.fromJson(Map<String, dynamic> json) {
     // Try common keys used by various LRR responses
     String id = '';
@@ -55,19 +83,40 @@ class Archive {
     if (json.containsKey('ArchiveID')) id = json['ArchiveID'].toString();
     if (json.containsKey('arcid')) id = json['arcid'].toString();
 
-    String title = json['title']?.toString() ?? json['Name']?.toString() ?? json['filename']?.toString() ?? '';
+    String title =
+        json['title']?.toString() ??
+        json['Name']?.toString() ??
+        json['filename']?.toString() ??
+        '';
 
     String? cover;
-    if (json.containsKey('cover')) cover = json['cover']?.toString();
-    if ((cover == null || cover.isEmpty) && json.containsKey('thumb')) cover = json['thumb']?.toString();
-    if ((cover == null || cover.isEmpty) && json.containsKey('coverurl')) cover = json['coverurl']?.toString();
+    if (json.containsKey('cover')) {
+      cover = json['cover']?.toString();
+    }
+    if ((cover == null || cover.isEmpty) && json.containsKey('thumb')) {
+      cover = json['thumb']?.toString();
+    }
+    if ((cover == null || cover.isEmpty) && json.containsKey('coverurl')) {
+      cover = json['coverurl']?.toString();
+    }
 
     String? filename;
-    if (json.containsKey('filename')) filename = json['filename']?.toString();
-    if ((filename == null || filename.isEmpty) && json.containsKey('Filename')) filename = json['Filename']?.toString();
+    if (json.containsKey('filename')) {
+      filename = json['filename']?.toString();
+    }
+    if ((filename == null || filename.isEmpty) &&
+        json.containsKey('Filename')) {
+      filename = json['Filename']?.toString();
+    }
 
     String? sourceUrl;
-    for (final key in const ['source', 'source_url', 'sourceurl', 'url', 'link']) {
+    for (final key in const [
+      'source',
+      'source_url',
+      'sourceurl',
+      'url',
+      'link',
+    ]) {
       final value = json[key]?.toString().trim();
       if (value != null && value.isNotEmpty) {
         sourceUrl = value;
@@ -76,8 +125,12 @@ class Archive {
     }
 
     String? tags;
-    if (json.containsKey('tags')) tags = json['tags']?.toString();
-    if ((tags == null || tags.isEmpty) && json.containsKey('Tags')) tags = json['Tags']?.toString();
+    if (json.containsKey('tags')) {
+      tags = json['tags']?.toString();
+    }
+    if ((tags == null || tags.isEmpty) && json.containsKey('Tags')) {
+      tags = json['Tags']?.toString();
+    }
     if ((sourceUrl == null || sourceUrl.isEmpty) && tags != null) {
       for (final rawTag in tags.split(',')) {
         final tag = rawTag.trim();
@@ -132,7 +185,9 @@ class Archive {
     }
 
     int? year;
-    if (json.containsKey('year')) year = int.tryParse(json['year']?.toString() ?? '');
+    if (json.containsKey('year')) {
+      year = int.tryParse(json['year']?.toString() ?? '');
+    }
 
     return Archive(
       id: id,
@@ -150,16 +205,16 @@ class Archive {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'cover': coverUrl,
-        'filename': filename,
-        'source': sourceUrl,
-        'tags': tags,
-        'progress': progress,
-        'lastreadtime': lastReadTime,
-        'isnew': isNew,
-        'year': year,
-        'pages': pageCount,
-      };
+    'id': id,
+    'title': title,
+    'cover': coverUrl,
+    'filename': filename,
+    'source': sourceUrl,
+    'tags': tags,
+    'progress': progress,
+    'lastreadtime': lastReadTime,
+    'isnew': isNew,
+    'year': year,
+    'pages': pageCount,
+  };
 }
