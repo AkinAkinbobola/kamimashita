@@ -30,11 +30,6 @@ flutter build windows --release
 3. Enter the LANraragi server URL and API key.
 4. Save.
 
-## Notes
-
-- Server-side reading progress is used when the LANraragi instance supports it.
-- Random Pick and On Deck are loaded from the LANraragi API.
-
 ## Development
 
 ```bash
