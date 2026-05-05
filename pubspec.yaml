@@ -58,6 +58,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
+  msix: any
 
 flutter_launcher_icons:
   android: true
@@ -70,6 +71,14 @@ flutter_launcher_icons:
     generate: true
   linux: true
   image_path: assets/icon/app_icon.png
+
+msix_config:
+  display_name: Kamimashita
+  publisher_display_name: GitHub Copilot
+  identity_name: com.yourname.kamimashita
+  logo_path: assets/icon/app_icon.png
+  sign_msix: true
+  install_certificate: false
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

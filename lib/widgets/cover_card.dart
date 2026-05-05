@@ -14,6 +14,8 @@ class CoverCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isCompleted = archive.isCompleted;
+    final pageCount = archive.pageCount;
+    final showPageCount = pageCount != null && pageCount > 0;
 
     return Material(
       color: Colors.transparent,
@@ -82,9 +84,32 @@ class CoverCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                if (showPageCount)
+                  Positioned(
+                    right: 6,
+                    bottom: 6,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF000000),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        child: Text(
+                          '${pageCount}p',
+                          style: const TextStyle(
+                            color: AppTheme.crimson,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            height: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 Positioned(
                   left: 8,
-                  right: 8,
+                  right: showPageCount ? 40 : 8,
                   bottom: 8,
                   child: Text(
                     archive.title,
