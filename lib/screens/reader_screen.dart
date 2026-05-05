@@ -20,6 +20,16 @@ enum _PagedScrollResetAnchor { top, bottom }
 
 enum _PagedWheelEdge { top, bottom }
 
+const double _keyboardScrollDelta = 72;
+
+bool _isTrackpadScrollEvent(PointerScrollEvent event) {
+  return event.kind == PointerDeviceKind.trackpad;
+}
+
+bool _isCtrlPressed() {
+  return HardwareKeyboard.instance.isControlPressed;
+}
+
 class _StaleReaderLoadException implements Exception {
   const _StaleReaderLoadException();
 }
@@ -65,6 +75,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   ReaderFitMode _fitMode = ReaderFitMode.contain;
   List<String> _pageUrls = const [];
   List<GlobalKey> _pageKeys = const [];
+  List<GlobalKey<_ReaderPageState>> _pagedPageStateKeys = const [];
   Map<String, ImageProvider<Object>> _pageImageProviders = {};
 
   @override
@@ -249,6 +260,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _pageController = PageController(initialPage: initialPage);
     _currentPage = initialPage;
     _pageKeys = List<GlobalKey>.generate(pageUrls.length, (_) => GlobalKey());
+    _pagedPageStateKeys = List<GlobalKey<_ReaderPageState>>.generate(
+      pageUrls.length,
+      (_) => GlobalKey<_ReaderPageState>(),
+    );
     _lastSyncedPage = null;
     _pendingProgressPage = null;
     _pageUrls = pageUrls;
@@ -459,6 +474,72 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   void _resetZoomLevel() {
     _setZoomLevel(1.0);
+  }
+
+  bool _applyContinuousScrollDelta(double deltaY) {
+    if (deltaY == 0 || !_scrollController.hasClients) {
+      return false;
+    }
+
+    final position = _scrollController.position;
+    final targetOffset = (position.pixels + deltaY).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if ((targetOffset - position.pixels).abs() <= 0.5) {
+      return false;
+    }
+
+    _scrollController.jumpTo(targetOffset);
+    return true;
+  }
+
+  bool _applyPagedKeyboardScroll(double deltaY) {
+    if (_currentPage < 0 || _currentPage >= _pagedPageStateKeys.length) {
+      return false;
+    }
+
+    return _pagedPageStateKeys[_currentPage].currentState?.handleKeyboardScroll(
+          deltaY,
+        ) ??
+        false;
+  }
+
+  void _handleContinuousPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) {
+      return;
+    }
+
+    final deltaY = event.scrollDelta.dy;
+    if (deltaY == 0) {
+      return;
+    }
+
+    if (_isCtrlPressed()) {
+      final zoomDelta = -deltaY / 600;
+      _adjustZoomLevel(zoomDelta);
+      return;
+    }
+
+    if (!_isTrackpadScrollEvent(event)) {
+      return;
+    }
+
+    _applyContinuousScrollDelta(deltaY);
+  }
+
+  void _handleContinuousPanZoomUpdate(PointerPanZoomUpdateEvent event) {
+    final deltaY = event.panDelta.dy;
+    if (deltaY == 0) {
+      return;
+    }
+
+    if (_isCtrlPressed()) {
+      _adjustZoomLevel(-deltaY / 600);
+      return;
+    }
+
+    _applyContinuousScrollDelta(deltaY);
   }
 
   bool _consumePagedWheelNavigationCooldown() {
@@ -754,16 +835,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   KeyEventResult _handleKeyEvent(KeyEvent event, _ReaderDocument document) {
-    if (event is! KeyDownEvent) {
+    final isArrowEvent = event is KeyDownEvent || event is KeyRepeatEvent;
+    if (!isArrowEvent && event is! KeyDownEvent) {
       return KeyEventResult.ignored;
-    }
-
-    void goBackward() {
-      _goPreviousPage(document);
-    }
-
-    void goForward() {
-      _goNextPage(document);
     }
 
     switch (event.logicalKey) {
@@ -771,65 +845,99 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         if (_continuousScroll) {
           return KeyEventResult.ignored;
         }
-        if (_rightToLeft) {
-          goForward();
-        } else {
-          goBackward();
-        }
-        return KeyEventResult.handled;
+        return _applyPagedKeyboardScroll(-_keyboardScrollDelta)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
       case LogicalKeyboardKey.arrowRight:
         if (_continuousScroll) {
           return KeyEventResult.ignored;
         }
-        if (_rightToLeft) {
-          goBackward();
-        } else {
-          goForward();
-        }
-        return KeyEventResult.handled;
+        return _applyPagedKeyboardScroll(_keyboardScrollDelta)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
       case LogicalKeyboardKey.arrowUp:
+        if (_continuousScroll) {
+          return _applyContinuousScrollDelta(-_keyboardScrollDelta)
+              ? KeyEventResult.handled
+              : KeyEventResult.ignored;
+        }
+        return _applyPagedKeyboardScroll(-_keyboardScrollDelta)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
+      case LogicalKeyboardKey.arrowDown:
+        if (_continuousScroll) {
+          return _applyContinuousScrollDelta(_keyboardScrollDelta)
+              ? KeyEventResult.handled
+              : KeyEventResult.ignored;
+        }
+        return _applyPagedKeyboardScroll(_keyboardScrollDelta)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
       case LogicalKeyboardKey.pageUp:
         if (_continuousScroll) {
           return KeyEventResult.ignored;
         }
-        goBackward();
+        if (event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
+        _goPreviousPage(document);
         return KeyEventResult.handled;
-      case LogicalKeyboardKey.arrowDown:
       case LogicalKeyboardKey.pageDown:
         if (_continuousScroll) {
           return KeyEventResult.ignored;
         }
-        goForward();
+        if (event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
+        _goNextPage(document);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.keyA:
         if (_continuousScroll) {
           return KeyEventResult.ignored;
         }
-        goBackward();
+        if (event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
+        _goPreviousPage(document);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.keyD:
         if (_continuousScroll) {
           return KeyEventResult.ignored;
         }
-        goForward();
+        if (event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
+        _goNextPage(document);
         return KeyEventResult.handled;
       case LogicalKeyboardKey.space:
         if (_continuousScroll) {
           return KeyEventResult.ignored;
         }
+        if (event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
         if (HardwareKeyboard.instance.isShiftPressed) {
-          goBackward();
+          _goPreviousPage(document);
         } else {
-          goForward();
+          _goNextPage(document);
         }
         return KeyEventResult.handled;
       case LogicalKeyboardKey.keyM:
+        if (event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
         _toggleControls();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.keyF:
+        if (event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
         _toggleFullscreen();
         return KeyEventResult.handled;
       case LogicalKeyboardKey.escape:
+        if (event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
         if (_showSettingsPopover) {
           setState(() {
             _showSettingsPopover = false;
@@ -930,37 +1038,44 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                   }
                                   return false;
                                 },
-                                child: Container(
-                                  key: _scrollViewportKey,
-                                  child: _Scrollbarless(
-                                    child: ListView.builder(
-                                      key: ValueKey('scroll-$_reloadToken'),
-                                      controller: _scrollController,
-                                      cacheExtent:
-                                          MediaQuery.sizeOf(context).height *
-                                          1.5,
-                                      itemCount: pageCount,
-                                      itemBuilder: (context, index) {
-                                        return KeyedSubtree(
-                                          key: _pageKeys[index],
-                                          child: _ReaderPage(
-                                            imageProvider: _pageImageProvider(
-                                              document.archive.id,
-                                              index + 1,
-                                              document.pageUrls[index],
-                                              headers,
+                                child: Listener(
+                                  behavior: HitTestBehavior.opaque,
+                                  onPointerSignal:
+                                      _handleContinuousPointerSignal,
+                                  onPointerPanZoomUpdate:
+                                      _handleContinuousPanZoomUpdate,
+                                  child: Container(
+                                    key: _scrollViewportKey,
+                                    child: _Scrollbarless(
+                                      child: ListView.builder(
+                                        key: ValueKey('scroll-$_reloadToken'),
+                                        controller: _scrollController,
+                                        cacheExtent:
+                                            MediaQuery.sizeOf(context).height *
+                                            1.5,
+                                        itemCount: pageCount,
+                                        itemBuilder: (context, index) {
+                                          return KeyedSubtree(
+                                            key: _pageKeys[index],
+                                            child: _ReaderPage(
+                                              imageProvider: _pageImageProvider(
+                                                document.archive.id,
+                                                index + 1,
+                                                document.pageUrls[index],
+                                                headers,
+                                              ),
+                                              pageNumber: index + 1,
+                                              fitMode: ReaderFitMode.fitWidth,
+                                              zoomEnabled: true,
+                                              zoomLevel: _zoomLevel,
+                                              continuousLayout: true,
+                                              onZoomLevelChanged: _setZoomLevel,
+                                              onInteraction: null,
+                                              onRetryRequested: _retry,
                                             ),
-                                            pageNumber: index + 1,
-                                            fitMode: ReaderFitMode.fitWidth,
-                                            zoomEnabled: true,
-                                            zoomLevel: _zoomLevel,
-                                            continuousLayout: true,
-                                            onZoomLevelChanged: _setZoomLevel,
-                                            onInteraction: null,
-                                            onRetryRequested: _retry,
-                                          ),
-                                        );
-                                      },
+                                          );
+                                        },
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -977,7 +1092,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                 },
                                 itemBuilder: (context, index) {
                                   return _ReaderPage(
-                                    key: ValueKey('paged-$index'),
+                                    key: _pagedPageStateKeys[index],
                                     imageProvider: _pageImageProvider(
                                       document.archive.id,
                                       index + 1,
@@ -1911,15 +2026,21 @@ class _ReaderPageState extends State<_ReaderPage> {
     if (event is! PointerScrollEvent) {
       return;
     }
+
     final deltaY = event.scrollDelta.dy;
     if (deltaY == 0) {
       return;
     }
 
-    if (HardwareKeyboard.instance.isControlPressed && widget.zoomEnabled) {
+    if (_isCtrlPressed() && widget.zoomEnabled) {
       final zoomDelta = -deltaY / 600;
       final nextZoom = (widget.zoomLevel + zoomDelta).clamp(0.3, 5.0);
       widget.onZoomLevelChanged?.call(nextZoom);
+      return;
+    }
+
+    if (_isTrackpadScrollEvent(event)) {
+      _applyPagedPixelScroll(deltaY);
       return;
     }
 
@@ -1928,6 +2049,58 @@ class _ReaderPageState extends State<_ReaderPage> {
     }
 
     _handlePagedWheelScroll(deltaY);
+  }
+
+  void _handlePagedPanZoomUpdate(PointerPanZoomUpdateEvent event) {
+    final deltaY = event.panDelta.dy;
+    if (deltaY == 0) {
+      return;
+    }
+
+    if (_isCtrlPressed() && widget.zoomEnabled) {
+      final zoomDelta = -deltaY / 600;
+      final nextZoom = (widget.zoomLevel + zoomDelta).clamp(0.3, 5.0);
+      widget.onZoomLevelChanged?.call(nextZoom);
+      return;
+    }
+
+    _applyPagedPixelScroll(deltaY);
+  }
+
+  bool handleKeyboardScroll(double deltaY) {
+    return _applyPagedPixelScroll(deltaY);
+  }
+
+  bool _applyPagedPixelScroll(double deltaY) {
+    if (!widget.pagedNavigationEnabled) {
+      return false;
+    }
+
+    final direction = deltaY > 0 ? _PagedWheelEdge.bottom : _PagedWheelEdge.top;
+
+    if (!_verticalScrollController.hasClients) {
+      _handlePagedWheelEdgePush(direction);
+      return true;
+    }
+
+    final position = _verticalScrollController.position;
+    final currentOffset = position.pixels;
+    final targetOffset = (currentOffset + deltaY).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+
+    if ((targetOffset - currentOffset).abs() > 0.5) {
+      _verticalScrollController.jumpTo(targetOffset);
+      final hitEdge = direction == _PagedWheelEdge.bottom
+          ? targetOffset >= position.maxScrollExtent - 0.5
+          : targetOffset <= position.minScrollExtent + 0.5;
+      _armedWheelEdge = hitEdge ? direction : null;
+      return true;
+    }
+
+    _handlePagedWheelEdgePush(direction);
+    return true;
   }
 
   void _handlePagedWheelScroll(double deltaY) {
@@ -2158,6 +2331,9 @@ class _ReaderPageState extends State<_ReaderPage> {
           behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
           child: SingleChildScrollView(
             controller: _verticalScrollController,
+            physics: widget.pagedNavigationEnabled
+                ? const NeverScrollableScrollPhysics()
+                : null,
             scrollDirection: Axis.vertical,
             child: image,
           ),
@@ -2166,14 +2342,11 @@ class _ReaderPageState extends State<_ReaderPage> {
         if (widget.continuousLayout) {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
-            child: Listener(
-              onPointerSignal: _handlePagedPointerSignal,
-              child: GestureDetector(
-                supportedDevices: _desktopGestureDevices,
-                onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
-                onTap: widget.onInteraction,
-                child: image,
-              ),
+            child: GestureDetector(
+              supportedDevices: _desktopGestureDevices,
+              onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
+              onTap: widget.onInteraction,
+              child: image,
             ),
           );
         }
@@ -2182,7 +2355,9 @@ class _ReaderPageState extends State<_ReaderPage> {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
             child: Listener(
+              behavior: HitTestBehavior.opaque,
               onPointerSignal: _handlePagedPointerSignal,
+              onPointerPanZoomUpdate: _handlePagedPanZoomUpdate,
               child: GestureDetector(
                 supportedDevices: _desktopGestureDevices,
                 behavior: HitTestBehavior.opaque,
