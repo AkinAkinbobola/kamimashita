@@ -46,6 +46,7 @@ class _LibraryRefreshSnapshot {
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with WindowListener {
   static const _focusRevalidateDebounce = Duration(milliseconds: 500);
+  static const _focusRevalidateCooldown = Duration(seconds: 30);
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final _controller = TextEditingController();
@@ -93,6 +94,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   bool _selectedArchiveCategoryMessageIsError = false;
   bool _isRefreshRevalidating = false;
   bool _isBackgroundLibraryRefreshActive = false;
+  DateTime? _lastSuccessfulFocusRevalidationAt;
 
   bool get _isDetailsOpen => _selectedArchive != null;
 
@@ -259,6 +261,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       return;
     }
 
+    final now = DateTime.now();
+    final lastSuccessfulFocusRevalidationAt =
+        _lastSuccessfulFocusRevalidationAt;
+    if (lastSuccessfulFocusRevalidationAt != null &&
+        now.difference(lastSuccessfulFocusRevalidationAt) <
+            _focusRevalidateCooldown) {
+      return;
+    }
+
     final cachedArchiveCount = _libraryState.lastKnownArchiveCount;
     if (cachedArchiveCount == null) {
       return;
@@ -276,6 +287,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       return;
     }
 
+    _lastSuccessfulFocusRevalidationAt = now;
+
     if (!mounted ||
         remoteArchiveCount == null ||
         remoteArchiveCount == cachedArchiveCount) {
@@ -286,6 +299,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       showIndicator: false,
       showErrorToast: true,
     );
+  }
+
+  Future<void> _refreshVisibleDataInBackground() async {
+    await Future.wait<void>([
+      _refreshLibraryInBackground(showIndicator: true, showErrorToast: true),
+      _refreshOnDeck(),
+    ]);
   }
 
   Future<void> _refreshLibraryInBackground({
@@ -1935,12 +1955,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         preferredSize: const Size.fromHeight(52),
         child: _TopBar(
           onRefresh: () {
-            unawaited(
-              _refreshLibraryInBackground(
-                showIndicator: true,
-                showErrorToast: true,
-              ),
-            );
+            unawaited(_refreshVisibleDataInBackground());
           },
           isRefreshLoading: _isRefreshRevalidating,
           onOpenSidebarMenu: () => _scaffoldKey.currentState?.openDrawer(),
