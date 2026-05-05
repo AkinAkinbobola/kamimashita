@@ -14,6 +14,8 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      RELEASE_DIR: build/windows/x64/runner/Release
 
     steps:
       - name: Check out repository
@@ -31,24 +33,48 @@ jobs:
         run: flutter build windows --release
 
       - name: Upload Windows release artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
           path: build/windows/x64/runner/Release/
           if-no-files-found: error
 
-      - name: Create release archive
+      - name: Set release version
+        id: release_version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "app_version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Create portable zip
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           Compress-Archive `
-            -Path "build/windows/x64/runner/Release/*" `
-            -DestinationPath "build/windows/x64/runner/windows-release-${{ github.ref_name }}.zip"
+            -Path "$env:RELEASE_DIR\*" `
+            -DestinationPath "build/windows/x64/runner/kamimashita-${{ steps.release_version.outputs.app_version }}-windows-portable.zip"
+
+      - name: Install Inno Setup
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: choco install innosetup -y
+
+      - name: Build installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: iscc installer.iss /DAppVersion=$env:APP_VERSION
 
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
-          files: build/windows/x64/runner/windows-release-${{ github.ref_name }}.zip
+          body: |
+            kamimashita-${{ steps.release_version.outputs.app_version }}-setup.exe - installer, creates Start Menu shortcut and uninstaller entry
+            kamimashita-${{ steps.release_version.outputs.app_version }}-windows-portable.zip - portable, extract and run, no installation needed
+          files: |
+            build/windows/x64/runner/kamimashita-${{ steps.release_version.outputs.app_version }}-windows-portable.zip
+            build/installer/kamimashita-${{ steps.release_version.outputs.app_version }}-setup.exe
