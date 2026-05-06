@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../api/lanraragi_client.dart';
 import '../providers/settings_provider.dart';
 import '../utils/app_strings.dart';
 import '../widgets/theme.dart';
+import '../widgets/window_controls.dart';
 
 /// Screen for configuring the LANraragi connection settings.
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -136,158 +138,208 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         : AppTheme.crimson;
 
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          onPressed: () => Navigator.of(context).pop(),
-          icon: const Icon(Icons.arrow_back_rounded),
-          tooltip: AppStrings.backTooltip,
-        ),
-        title: const Text(AppStrings.settingsTitle),
-      ),
-      body: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 500),
-              child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceRaised,
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: const Color(0xFF26222A), width: 1),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black45,
-                    blurRadius: 24,
-                    offset: Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(22),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppStrings.settingsSectionTitle,
-                      style: theme.textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    SelectableText(
-                      AppStrings.settingsDescription,
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 22),
-                    Text(
-                      AppStrings.serverUrlLabel,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: Colors.white70,
-                        fontSize: 11,
-                        letterSpacing: 0.5,
+      body: Column(
+        children: [
+          _SettingsTopBar(
+            onBackPressed: () => Navigator.of(context).pop(),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 500),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppTheme.surfaceRaised,
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: const Color(0xFF26222A),
+                        width: 1,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _urlController,
-                      decoration: _fieldDecoration(
-                        hintText: AppStrings.serverUrlHint,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      AppStrings.apiKeyLabel,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: Colors.white70,
-                        fontSize: 11,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _apiController,
-                      decoration: _fieldDecoration(
-                        hintText: AppStrings.apiKeyHint,
-                      ),
-                      obscureText: true,
-                    ),
-                    const SizedBox(height: 18),
-                    OutlinedButton(
-                      onPressed: (_isTesting || _isSaving)
-                          ? null
-                          : () => _runConnectionCheck(showSuccess: true),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Color(0xFF2A2E39)),
-                        backgroundColor: const Color(0xFF1A1A1A),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        _isTesting
-                            ? AppStrings.testingConnection
-                            : AppStrings.testConnection,
-                      ),
-                    ),
-                    if (_statusText != null) ...[
-                      const SizedBox(height: 14),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: statusColor.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: statusColor.withValues(alpha: 0.35),
-                          ),
-                        ),
-                        child: SelectableText(
-                          _statusText!,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: statusColor,
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 22),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: _isSaving
-                              ? null
-                              : () => Navigator.of(context).pop(),
-                          child: const Text(AppStrings.cancel),
-                        ),
-                        const SizedBox(width: 10),
-                        ElevatedButton(
-                          onPressed: (_isSaving || _isTesting) ? null : _save,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.crimson,
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 14,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: Text(
-                            _isSaving ? AppStrings.saving : AppStrings.save,
-                          ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black45,
+                          blurRadius: 24,
+                          offset: Offset(0, 10),
                         ),
                       ],
                     ),
-                  ],
+                    child: Padding(
+                      padding: const EdgeInsets.all(22),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            AppStrings.settingsSectionTitle,
+                            style: theme.textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 8),
+                          SelectableText(
+                            AppStrings.settingsDescription,
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 22),
+                          Text(
+                            AppStrings.serverUrlLabel,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _urlController,
+                            decoration: _fieldDecoration(
+                              hintText: AppStrings.serverUrlHint,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            AppStrings.apiKeyLabel,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _apiController,
+                            decoration: _fieldDecoration(
+                              hintText: AppStrings.apiKeyHint,
+                            ),
+                            obscureText: true,
+                          ),
+                          const SizedBox(height: 18),
+                          OutlinedButton(
+                            onPressed: (_isTesting || _isSaving)
+                                ? null
+                                : () => _runConnectionCheck(showSuccess: true),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Color(0xFF2A2E39)),
+                              backgroundColor: const Color(0xFF1A1A1A),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: Text(
+                              _isTesting
+                                  ? AppStrings.testingConnection
+                                  : AppStrings.testConnection,
+                            ),
+                          ),
+                          if (_statusText != null) ...[
+                            const SizedBox(height: 14),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color: statusColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: statusColor.withValues(alpha: 0.35),
+                                ),
+                              ),
+                              child: SelectableText(
+                                _statusText!,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: statusColor,
+                                ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 22),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                onPressed: _isSaving
+                                    ? null
+                                    : () => Navigator.of(context).pop(),
+                                child: const Text(AppStrings.cancel),
+                              ),
+                              const SizedBox(width: 10),
+                              ElevatedButton(
+                                onPressed:
+                                    (_isSaving || _isTesting) ? null : _save,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.crimson,
+                                  foregroundColor: Colors.black,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 18,
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: Text(
+                                  _isSaving
+                                      ? AppStrings.saving
+                                      : AppStrings.save,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsTopBar extends StatelessWidget {
+  const _SettingsTopBar({required this.onBackPressed});
+
+  final VoidCallback onBackPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      height: 52,
+      decoration: const BoxDecoration(
+        color: AppTheme.background,
+        border: Border(bottom: BorderSide(color: AppTheme.border, width: 0.5)),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: DragToMoveArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: onBackPressed,
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  tooltip: AppStrings.backTooltip,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  AppStrings.settingsTitle,
+                  style: theme.textTheme.titleMedium,
+                ),
+                const Spacer(),
+                const WindowControls(),
+              ],
             ),
           ),
         ),

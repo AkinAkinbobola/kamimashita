@@ -26,6 +26,19 @@ enum _ArchiveBoundary { beginning, end }
 
 const double _trackpadPanSensitivity = 0.6;
 
+bool get _showsReaderWindowControls {
+  if (kIsWeb) {
+    return false;
+  }
+
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.windows ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => true,
+    _ => false,
+  };
+}
+
 bool _isTrackpadScrollEvent(PointerScrollEvent event) {
   return event.kind == PointerDeviceKind.trackpad;
 }
@@ -1365,86 +1378,106 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                     12,
                                     0,
                                   ),
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xB3101217),
-                                      borderRadius: BorderRadius.circular(18),
-                                      border: Border.all(
-                                        color: const Color(0xFF252B36),
-                                        width: 0.5,
+                                  child: DragToMoveArea(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xB3101217),
+                                        borderRadius: BorderRadius.circular(18),
+                                        border: Border.all(
+                                          color: const Color(0xFF252B36),
+                                          width: 0.5,
+                                        ),
                                       ),
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 8,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          _ReaderBarButton(
-                                            tooltip: 'Exit reader',
-                                            icon: Icons.arrow_back_rounded,
-                                            onPressed: _exitReader,
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  document.archive.title,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: theme
-                                                      .textTheme
-                                                      .titleMedium
-                                                      ?.copyWith(
-                                                        color: Colors.white,
-                                                      ),
-                                                ),
-                                                Text(
-                                                  '${_currentPage + 1} / $pageCount',
-                                                  style: theme
-                                                      .textTheme
-                                                      .bodySmall
-                                                      ?.copyWith(
-                                                        color: Colors.white70,
-                                                      ),
-                                                ),
-                                              ],
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 8,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            _ReaderBarButton(
+                                              tooltip: 'Exit reader',
+                                              icon: Icons.arrow_back_rounded,
+                                              onPressed: _exitReader,
                                             ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          _ReaderBarButton(
-                                            tooltip: 'Reader settings',
-                                            icon: Icons.tune_rounded,
-                                            onPressed: _toggleSettingsPopover,
-                                            active: _showSettingsPopover,
-                                          ),
-                                          if (_supportsWindowFullscreen) ...[
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    document.archive.title,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: theme
+                                                        .textTheme
+                                                        .titleMedium
+                                                        ?.copyWith(
+                                                          color: Colors.white,
+                                                        ),
+                                                  ),
+                                                  Text(
+                                                    '${_currentPage + 1} / $pageCount',
+                                                    style: theme
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: Colors.white70,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            _ReaderBarButton(
+                                              tooltip: 'Reader settings',
+                                              icon: Icons.tune_rounded,
+                                              onPressed: _toggleSettingsPopover,
+                                              active: _showSettingsPopover,
+                                            ),
+                                            if (_supportsWindowFullscreen) ...[
+                                              const SizedBox(width: 4),
+                                              _ReaderBarButton(
+                                                tooltip: _isFullscreen
+                                                    ? 'Exit fullscreen'
+                                                    : 'Fullscreen',
+                                                icon: _isFullscreen
+                                                    ? Icons
+                                                          .fullscreen_exit_rounded
+                                                    : Icons.fullscreen_rounded,
+                                                onPressed: _toggleFullscreen,
+                                                active: _isFullscreen,
+                                              ),
+                                            ],
                                             const SizedBox(width: 4),
                                             _ReaderBarButton(
-                                              tooltip: _isFullscreen
-                                                  ? 'Exit fullscreen'
-                                                  : 'Fullscreen',
-                                              icon: _isFullscreen
-                                                  ? Icons
-                                                        .fullscreen_exit_rounded
-                                                  : Icons.fullscreen_rounded,
-                                              onPressed: _toggleFullscreen,
-                                              active: _isFullscreen,
+                                              tooltip: 'Reload pages',
+                                              icon: Icons.refresh_rounded,
+                                              onPressed: _retry,
                                             ),
+                                            if (_showsReaderWindowControls) ...[
+                                              const SizedBox(width: 4),
+                                              _ReaderBarButton(
+                                                tooltip: 'Minimize window',
+                                                icon: Icons.horizontal_rule_rounded,
+                                                onPressed: () async {
+                                                  await windowManager.minimize();
+                                                },
+                                              ),
+                                              const SizedBox(width: 4),
+                                              _ReaderBarButton(
+                                                tooltip: 'Close window',
+                                                icon: Icons.close_rounded,
+                                                onPressed: () async {
+                                                  await windowManager.close();
+                                                },
+                                              ),
+                                            ],
                                           ],
-                                          const SizedBox(width: 4),
-                                          _ReaderBarButton(
-                                            tooltip: 'Reload pages',
-                                            icon: Icons.refresh_rounded,
-                                            onPressed: _retry,
-                                          ),
-                                        ],
+                                        ),
                                       ),
                                     ),
                                   ),
