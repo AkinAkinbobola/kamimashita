@@ -1526,61 +1526,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (_hideCompleted) {
       count += 1;
     }
-    if (_dynamicCategories.any(
-      (category) => category.id == _selectedCategoryId,
-    )) {
-      count += 1;
-    }
     return count;
-  }
-
-  void _toggleCategorySelection(String categoryId) {
-    _updateCategory(_selectedCategoryId == categoryId ? null : categoryId);
-  }
-
-  Future<void> _showCategoryActionsMenu(
-    LanraragiCategory category,
-    Offset globalPosition,
-  ) async {
-    final overlay = Overlay.of(context).context.findRenderObject();
-    final overlayBox = overlay is RenderBox ? overlay : null;
-    if (overlayBox == null) {
-      return;
-    }
-
-    final action = await showMenu<_CategoryContextAction>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        globalPosition.dx,
-        globalPosition.dy,
-        overlayBox.size.width - globalPosition.dx,
-        overlayBox.size.height - globalPosition.dy,
-      ),
-      color: const Color(0xFF1A1A1A),
-      elevation: 0,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-      items: const [
-        PopupMenuItem<_CategoryContextAction>(
-          value: _CategoryContextAction.edit,
-          child: Text(AppStrings.edit),
-        ),
-        PopupMenuItem<_CategoryContextAction>(
-          value: _CategoryContextAction.delete,
-          child: Text(AppStrings.delete),
-        ),
-      ],
-    );
-
-    if (!mounted || action == null) {
-      return;
-    }
-
-    switch (action) {
-      case _CategoryContextAction.edit:
-        await _showEditCategoryDialog(category);
-      case _CategoryContextAction.delete:
-        await _showDeleteCategoryDialog(category);
-    }
   }
 
   void _toggleFlagFilter({
@@ -1733,13 +1679,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             _CategoryFilterMenu(
               width: 190,
               label:
-                  _staticCategories
+                  _categories
                       .where((category) => category.id == _selectedCategoryId)
                       .map((category) => category.name)
                       .cast<String?>()
                       .firstOrNull ??
                   AppStrings.allCategories,
-              categories: _staticCategories,
+              staticCategories: _staticCategories,
+              dynamicCategories: _dynamicCategories,
+              selectedCategoryId: _selectedCategoryId,
               onSelected: _updateCategory,
               onCreateCategory: _showCreateCategoryDialog,
               onEditCategory: _showEditCategoryDialog,
@@ -1747,17 +1695,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             ),
             const SizedBox(width: 8),
             _FiltersMenuButton(
-              width: 260,
               activeCount: _activeFilterCount,
               newOnly: _newOnly,
               untaggedOnly: _untaggedOnly,
               hideCompleted: _hideCompleted,
-              dynamicCategories: _dynamicCategories,
-              selectedDynamicCategoryId: _dynamicCategories
-                  .where((category) => category.id == _selectedCategoryId)
-                  .map((category) => category.id)
-                  .cast<String?>()
-                  .firstOrNull,
               onToggleNewOnly: () => _toggleFlagFilter(
                 currentValue: _newOnly,
                 apply: (value) => setState(() => _newOnly = value),
@@ -1772,8 +1713,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                 currentValue: _hideCompleted,
                 apply: (value) => setState(() => _hideCompleted = value),
               ),
-              onToggleDynamicCategory: _toggleCategorySelection,
-              onOpenCategoryActions: _showCategoryActionsMenu,
             ),
           ],
         ),
@@ -2565,7 +2504,9 @@ class _CategoryFilterMenu extends StatelessWidget {
   const _CategoryFilterMenu({
     required this.width,
     required this.label,
-    required this.categories,
+    required this.staticCategories,
+    required this.dynamicCategories,
+    required this.selectedCategoryId,
     required this.onSelected,
     required this.onCreateCategory,
     required this.onEditCategory,
@@ -2574,7 +2515,9 @@ class _CategoryFilterMenu extends StatelessWidget {
 
   final double width;
   final String label;
-  final List<LanraragiCategory> categories;
+  final List<LanraragiCategory> staticCategories;
+  final List<LanraragiCategory> dynamicCategories;
+  final String? selectedCategoryId;
   final ValueChanged<String?> onSelected;
   final VoidCallback onCreateCategory;
   final ValueChanged<LanraragiCategory> onEditCategory;
@@ -2584,6 +2527,17 @@ class _CategoryFilterMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final controller = MenuController();
+    final maxMenuHeight = MediaQuery.sizeOf(context).height * 0.7;
+    final staticSectionHeight = staticCategories.length * 36.0;
+    final fixedHeight =
+        36.0 +
+        (staticCategories.isNotEmpty ? 22.0 + staticSectionHeight : 0.0) +
+        (staticCategories.isNotEmpty && dynamicCategories.isNotEmpty ? 9.0 : 0.0) +
+        (dynamicCategories.isNotEmpty ? 22.0 : 0.0) +
+        9.0 +
+        36.0;
+    final dynamicSectionMaxHeight =
+        maxMenuHeight > fixedHeight ? maxMenuHeight - fixedHeight : 0.0;
 
     return SizedBox(
       width: width,
@@ -2606,15 +2560,23 @@ class _CategoryFilterMenu extends StatelessWidget {
           _CategoryFilterMenuItem(
             width: width,
             label: AppStrings.allCategories,
+            selected: selectedCategoryId == null,
             onSelect: () {
               controller.close();
               onSelected(null);
             },
           ),
-          ...categories.map(
+          if (staticCategories.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: _CategoryMenuSectionHeader(label: 'STATIC'),
+            ),
+            ...staticCategories.map(
             (category) => _CategoryFilterMenuItem(
               width: width,
               label: category.name,
+              selected: selectedCategoryId == category.id,
+              leadingIcon: Icons.folder_outlined,
               onSelect: () {
                 controller.close();
                 onSelected(category.id);
@@ -2630,6 +2592,51 @@ class _CategoryFilterMenu extends StatelessWidget {
               },
             ),
           ),
+          ],
+          if (staticCategories.isNotEmpty && dynamicCategories.isNotEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Divider(height: 1, thickness: 0.5, color: AppTheme.border),
+            ),
+          if (dynamicCategories.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(12, 8, 12, 4),
+              child: _CategoryMenuSectionHeader(label: 'DYNAMIC'),
+            ),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: dynamicSectionMaxHeight),
+              child: _Scrollbarless(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: dynamicCategories
+                        .map(
+                          (category) => _CategoryFilterMenuItem(
+                            width: width,
+                            label: category.name,
+                            selected: selectedCategoryId == category.id,
+                            leadingIcon: Icons.bolt_rounded,
+                            onSelect: () {
+                              controller.close();
+                              onSelected(category.id);
+                            },
+                            onActionSelected: (action) {
+                              controller.close();
+                              switch (action) {
+                                case _CategoryContextAction.edit:
+                                  onEditCategory(category);
+                                case _CategoryContextAction.delete:
+                                  onDeleteCategory(category);
+                              }
+                            },
+                          ),
+                        )
+                        .toList(growable: false),
+                  ),
+                ),
+              ),
+            ),
+          ],
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
             child: Divider(height: 1, thickness: 0.5, color: AppTheme.border),
@@ -2701,39 +2708,28 @@ class _CategoryFilterMenu extends StatelessWidget {
 
 class _FiltersMenuButton extends StatelessWidget {
   const _FiltersMenuButton({
-    required this.width,
     required this.activeCount,
     required this.newOnly,
     required this.untaggedOnly,
     required this.hideCompleted,
-    required this.dynamicCategories,
-    required this.selectedDynamicCategoryId,
     required this.onToggleNewOnly,
     required this.onToggleUntagged,
     required this.onToggleHideCompleted,
-    required this.onToggleDynamicCategory,
-    required this.onOpenCategoryActions,
   });
 
-  final double width;
   final int activeCount;
   final bool newOnly;
   final bool untaggedOnly;
   final bool hideCompleted;
-  final List<LanraragiCategory> dynamicCategories;
-  final String? selectedDynamicCategoryId;
   final VoidCallback onToggleNewOnly;
   final VoidCallback onToggleUntagged;
   final VoidCallback onToggleHideCompleted;
-  final ValueChanged<String> onToggleDynamicCategory;
-  final Future<void> Function(LanraragiCategory, Offset) onOpenCategoryActions;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return SizedBox(
-      width: width,
+    return IntrinsicWidth(
       child: MenuAnchor(
         style: const MenuStyle(
           backgroundColor: WidgetStatePropertyAll(Color(0xFF1E1E1E)),
@@ -2764,34 +2760,6 @@ class _FiltersMenuButton extends StatelessWidget {
             value: hideCompleted,
             onChanged: (_) => onToggleHideCompleted(),
           ),
-          if (dynamicCategories.isNotEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-              child: Divider(height: 1, thickness: 0.5, color: AppTheme.border),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  AppStrings.dynamicCategories.toUpperCase(),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: AppTheme.textMuted,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ),
-            ),
-            ...dynamicCategories.map(
-              (category) => _DynamicCategoryMenuRow(
-                category: category,
-                selected: selectedDynamicCategoryId == category.id,
-                onChanged: (_) => onToggleDynamicCategory(category.id),
-                onOpenActions: onOpenCategoryActions,
-              ),
-            ),
-          ],
         ],
         builder: (context, controller, child) {
           return MouseRegion(
@@ -2818,27 +2786,26 @@ class _FiltersMenuButton extends StatelessWidget {
                     vertical: 8,
                   ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: RichText(
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          text: TextSpan(
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: AppTheme.textPrimary,
-                            ),
-                            children: [
-                              const TextSpan(text: AppStrings.filters),
-                              if (activeCount > 0)
-                                TextSpan(
-                                  text: ' ($activeCount)',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: const Color(0xFF49D7E8),
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                            ],
+                      RichText(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        text: TextSpan(
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: AppTheme.textPrimary,
                           ),
+                          children: [
+                            const TextSpan(text: AppStrings.filters),
+                            if (activeCount > 0)
+                              TextSpan(
+                                text: ' ($activeCount)',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: const Color(0xFF49D7E8),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -2902,84 +2869,24 @@ class _FilterCheckboxMenuRow extends StatelessWidget {
   }
 }
 
-class _DynamicCategoryMenuRow extends StatelessWidget {
-  const _DynamicCategoryMenuRow({
-    required this.category,
-    required this.selected,
-    required this.onChanged,
-    required this.onOpenActions,
-  });
+class _CategoryMenuSectionHeader extends StatelessWidget {
+  const _CategoryMenuSectionHeader({required this.label});
 
-  final LanraragiCategory category;
-  final bool selected;
-  final ValueChanged<bool?> onChanged;
-  final Future<void> Function(LanraragiCategory, Offset) onOpenActions;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final foregroundColor = selected
-        ? const Color(0xFF49D7E8)
-        : AppTheme.textMuted;
-
-    return Builder(
-      builder: (context) {
-        return InkWell(
-          onTap: () => onChanged(!selected),
-          onSecondaryTapDown: (details) =>
-              onOpenActions(category, details.globalPosition),
-          mouseCursor: SystemMouseCursors.click,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                Icon(Icons.bolt, size: 12, color: foregroundColor),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    category.name,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: foregroundColor,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                ),
-                if (selected)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 6),
-                    child: Icon(Icons.done, size: 14, color: Color(0xFF49D7E8)),
-                  ),
-                IconButton(
-                  onPressed: () async {
-                    final box = context.findRenderObject();
-                    final renderBox = box is RenderBox ? box : null;
-                    if (renderBox == null) {
-                      return;
-                    }
-                    final topRight = renderBox.localToGlobal(
-                      Offset(renderBox.size.width, 0),
-                    );
-                    await onOpenActions(category, topRight);
-                  },
-                  tooltip: 'Category actions',
-                  padding: EdgeInsets.zero,
-                  visualDensity: VisualDensity.compact,
-                  constraints: const BoxConstraints(
-                    minWidth: 28,
-                    minHeight: 28,
-                  ),
-                  splashRadius: 16,
-                  icon: const Icon(
-                    Icons.more_horiz,
-                    size: 16,
-                    color: AppTheme.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: AppTheme.textMuted,
+          fontWeight: FontWeight.w600,
+          fontSize: 10,
+          letterSpacing: 1.1,
+        ),
+      ),
     );
   }
 }
@@ -2992,6 +2899,8 @@ class _CategoryFilterMenuItem extends StatefulWidget {
     this.onActionSelected,
     this.highlightColor,
     this.textColor,
+    this.selected = false,
+    this.leadingIcon,
   });
 
   final double width;
@@ -3000,6 +2909,8 @@ class _CategoryFilterMenuItem extends StatefulWidget {
   final ValueChanged<_CategoryContextAction>? onActionSelected;
   final Color? highlightColor;
   final Color? textColor;
+  final bool selected;
+  final IconData? leadingIcon;
 
   @override
   State<_CategoryFilterMenuItem> createState() =>
@@ -3047,9 +2958,10 @@ class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final highlightColor =
         widget.highlightColor ?? AppTheme.crimson.withValues(alpha: 0.14);
+    final foregroundColor = widget.textColor ??
+        (widget.selected ? const Color(0xFF49D7E8) : AppTheme.textPrimary);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -3072,16 +2984,27 @@ class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
               padding: const EdgeInsets.only(left: 12, right: 6),
               child: Row(
                 children: [
+                  if (widget.leadingIcon != null) ...[
+                    Icon(widget.leadingIcon, size: 14, color: foregroundColor),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: Text(
                       widget.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: widget.textColor ?? AppTheme.textSecondary,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: foregroundColor,
+                        fontWeight:
+                            widget.selected ? FontWeight.w700 : FontWeight.w500,
                       ),
                     ),
                   ),
+                  if (widget.selected)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 6),
+                      child: Icon(Icons.done, size: 14, color: Color(0xFF49D7E8)),
+                    ),
                   if (widget.onActionSelected != null)
                     IconButton(
                       onPressed: () async {
