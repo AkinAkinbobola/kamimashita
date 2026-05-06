@@ -78,3 +78,70 @@ jobs:
           files: |
             build/windows/x64/runner/kamimashita-${{ steps.release_version.outputs.app_version }}-windows-portable.zip
             build/installer/kamimashita-${{ steps.release_version.outputs.app_version }}-setup.exe
+
+  build-macos:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Set release version
+        id: release_version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "app_version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Create macOS zip
+        shell: bash
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/Build/Products/Release \
+            build/macos/kamimashita-${{ steps.release_version.outputs.app_version }}-macos.zip
+
+      - name: Upload macOS asset and update release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          release_found=false
+          for attempt in {1..60}; do
+            if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+              release_found=true
+              break
+            fi
+            sleep 5
+          done
+
+          if [ "$release_found" != true ]; then
+            echo "Release ${GITHUB_REF_NAME} was not created by the Windows job in time." >&2
+            exit 1
+          fi
+
+          gh release upload "${GITHUB_REF_NAME}" \
+            "build/macos/kamimashita-${{ steps.release_version.outputs.app_version }}-macos.zip" \
+            --clobber
+
+          cat <<EOF > release-notes.txt
+          kamimashita-${{ steps.release_version.outputs.app_version }}-setup.exe - Windows installer
+          kamimashita-${{ steps.release_version.outputs.app_version }}-windows-portable.zip - Windows portable
+          kamimashita-${{ steps.release_version.outputs.app_version }}-macos.zip - macOS, right-click and select Open the first time due to Gatekeeper
+          EOF
+
+          gh release edit "${GITHUB_REF_NAME}" --notes-file release-notes.txt
