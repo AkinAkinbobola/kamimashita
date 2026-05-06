@@ -108,12 +108,22 @@ jobs:
       - name: Build macOS release
         run: flutter build macos --release
 
-      - name: Create macOS zip
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create DMG
         shell: bash
         run: |
-          ditto -c -k --sequesterRsrc --keepParent \
-            build/macos/Build/Products/Release \
-            build/macos/kamimashita-${{ steps.release_version.outputs.app_version }}-macos.zip
+          create-dmg \
+            --volname "Kamimashita" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Kamimashita.app" 175 190 \
+            --hide-extension "Kamimashita.app" \
+            --app-drop-link 425 190 \
+            "build/macos/kamimashita-${{ steps.release_version.outputs.app_version }}.dmg" \
+            "build/macos/Build/Products/Release/Kamimashita.app"
 
       - name: Upload macOS asset and update release notes
         env:
@@ -135,13 +145,13 @@ jobs:
           fi
 
           gh release upload "${GITHUB_REF_NAME}" \
-            "build/macos/kamimashita-${{ steps.release_version.outputs.app_version }}-macos.zip" \
+            "build/macos/kamimashita-${{ steps.release_version.outputs.app_version }}.dmg" \
             --clobber
 
           cat <<EOF > release-notes.txt
           kamimashita-${{ steps.release_version.outputs.app_version }}-setup.exe - Windows installer
           kamimashita-${{ steps.release_version.outputs.app_version }}-windows-portable.zip - Windows portable
-          kamimashita-${{ steps.release_version.outputs.app_version }}-macos.zip - macOS, right-click and select Open the first time due to Gatekeeper
+          kamimashita-${{ steps.release_version.outputs.app_version }}.dmg - macOS, open the DMG, drag to Applications, right-click -> Open on first launch due to Gatekeeper
           EOF
 
           gh release edit "${GITHUB_REF_NAME}" --notes-file release-notes.txt
