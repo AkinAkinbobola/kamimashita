@@ -2304,6 +2304,8 @@ class _ReaderPageState extends State<_ReaderPage>
   };
 
   static const _keyboardScrollDuration = Duration(milliseconds: 150);
+  static const _edgePushMinDelta = 14.0;
+  static const _edgePushMinInterval = Duration(milliseconds: 85);
 
   final ScrollController _verticalScrollController = ScrollController();
   ImageStream? _imageStream;
@@ -2311,6 +2313,7 @@ class _ReaderPageState extends State<_ReaderPage>
   ImageInfo? _imageInfo;
   Object? _imageError;
   _PagedWheelEdge? _armedWheelEdge;
+  DateTime? _lastWheelEdgePushAt;
   _PagedScrollResetAnchor? _pendingPagedScrollResetAnchor;
   double? _animatedScrollTarget;
 
@@ -2344,8 +2347,8 @@ class _ReaderPageState extends State<_ReaderPage>
       _pendingPagedScrollResetAnchor = _pagedScrollResetAnchor;
       _schedulePagedScrollReset();
     }
-    if (!widget.isActive) {
-      _armedWheelEdge = null;
+    if (!widget.isActive || oldWidget.isActive != widget.isActive) {
+      _resetPagedWheelEdgeArming();
     }
   }
 
@@ -2428,7 +2431,7 @@ class _ReaderPageState extends State<_ReaderPage>
     }
 
     _pendingPagedScrollResetAnchor = null;
-    _armedWheelEdge = null;
+    _resetPagedWheelEdgeArming();
     _verticalScrollController.jumpTo(
       anchor == _PagedScrollResetAnchor.top
           ? _verticalScrollController.position.minScrollExtent
@@ -2534,9 +2537,10 @@ class _ReaderPageState extends State<_ReaderPage>
 
     _animatedScrollTarget = null;
     final direction = deltaY > 0 ? _PagedWheelEdge.bottom : _PagedWheelEdge.top;
+    _resetPagedWheelEdgeArmingIfDirectionChanged(direction);
 
     if (!_verticalScrollController.hasClients) {
-      _handlePagedWheelEdgePush(direction);
+      _handlePagedWheelEdgePush(direction, deltaY.abs());
       return true;
     }
 
@@ -2552,11 +2556,13 @@ class _ReaderPageState extends State<_ReaderPage>
       final hitEdge = direction == _PagedWheelEdge.bottom
           ? targetOffset >= position.maxScrollExtent - 0.5
           : targetOffset <= position.minScrollExtent + 0.5;
-      _armedWheelEdge = hitEdge ? direction : null;
+      if (!hitEdge) {
+        _resetPagedWheelEdgeArming();
+      }
       return true;
     }
 
-    _handlePagedWheelEdgePush(direction);
+    _handlePagedWheelEdgePush(direction, deltaY.abs());
     return true;
   }
 
@@ -2566,9 +2572,10 @@ class _ReaderPageState extends State<_ReaderPage>
     }
 
     final direction = deltaY > 0 ? _PagedWheelEdge.bottom : _PagedWheelEdge.top;
+    _resetPagedWheelEdgeArmingIfDirectionChanged(direction);
 
     if (!_verticalScrollController.hasClients) {
-      _handlePagedWheelEdgePush(direction);
+      _handlePagedWheelEdgePush(direction, deltaY.abs());
       _animatedScrollTarget = null;
       return true;
     }
@@ -2582,7 +2589,9 @@ class _ReaderPageState extends State<_ReaderPage>
       final hitEdge = direction == _PagedWheelEdge.bottom
           ? targetOffset >= position.maxScrollExtent - 0.5
           : targetOffset <= position.minScrollExtent + 0.5;
-      _armedWheelEdge = hitEdge ? direction : null;
+      if (!hitEdge) {
+        _resetPagedWheelEdgeArming();
+      }
       _verticalScrollController
           .animateTo(
             targetOffset,
@@ -2599,7 +2608,7 @@ class _ReaderPageState extends State<_ReaderPage>
     }
 
     _animatedScrollTarget = null;
-    _handlePagedWheelEdgePush(direction);
+    _handlePagedWheelEdgePush(direction, deltaY.abs());
     return true;
   }
 
@@ -2607,9 +2616,13 @@ class _ReaderPageState extends State<_ReaderPage>
     _applyAnimatedScrollDelta(deltaY);
   }
 
-  void _handlePagedWheelEdgePush(_PagedWheelEdge direction) {
+  void _handlePagedWheelEdgePush(_PagedWheelEdge direction, double delta) {
+    if (!_acceptsPagedWheelEdgePush(delta)) {
+      return;
+    }
+
     if (_armedWheelEdge == direction) {
-      _armedWheelEdge = null;
+      _resetPagedWheelEdgeArming();
       if (direction == _PagedWheelEdge.bottom) {
         widget.onNextPageFromWheelRequested?.call();
       } else {
@@ -2619,6 +2632,32 @@ class _ReaderPageState extends State<_ReaderPage>
     }
 
     _armedWheelEdge = direction;
+    _lastWheelEdgePushAt = DateTime.now();
+  }
+
+  bool _acceptsPagedWheelEdgePush(double delta) {
+    if (delta < _edgePushMinDelta) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    if (_lastWheelEdgePushAt != null &&
+        now.difference(_lastWheelEdgePushAt!) < _edgePushMinInterval) {
+      return false;
+    }
+
+    return true;
+  }
+
+  void _resetPagedWheelEdgeArmingIfDirectionChanged(_PagedWheelEdge direction) {
+    if (_armedWheelEdge != null && _armedWheelEdge != direction) {
+      _resetPagedWheelEdgeArming();
+    }
+  }
+
+  void _resetPagedWheelEdgeArming() {
+    _armedWheelEdge = null;
+    _lastWheelEdgePushAt = null;
   }
 
   Size _effectiveViewportSize(BoxConstraints constraints) {
