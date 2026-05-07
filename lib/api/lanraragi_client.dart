@@ -528,6 +528,39 @@ class LanraragiClient {
     }
   }
 
+  /// Deletes an archive.
+  Future<void> deleteArchive(String archiveId) async {
+    try {
+      await _delete('/api/archives/$archiveId');
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
+  /// Updates archive metadata fields.
+  Future<void> updateArchiveMetadata(
+    String archiveId, {
+    String? tags,
+    String? title,
+  }) async {
+    final data = <String, Object>{};
+    if (tags != null) {
+      data['tags'] = tags;
+    }
+    if (title != null) {
+      data['title'] = title;
+    }
+
+    try {
+      await _put(
+        '/api/archives/$archiveId/metadata',
+        data: FormData.fromMap(data),
+      );
+    } on DioException catch (e) {
+      throw LanraragiException(_describeRequestFailure(e));
+    }
+  }
+
   /// Fetches recent in-progress archives for the On Deck sidebar.
   Future<List<Archive>> getOnDeckArchives() async {
     try {

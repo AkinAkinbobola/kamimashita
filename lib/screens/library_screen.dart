@@ -46,6 +46,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with WindowListener {
   static const _focusRevalidateDebounce = Duration(milliseconds: 500);
   static const _focusRevalidateCooldown = Duration(seconds: 30);
+  static const String _archiveRatingPrefix = 'rating:';
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final _controller = TextEditingController();
@@ -89,6 +90,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   List<LanraragiCategory> _selectedArchiveCategories = const [];
   bool _isLoadingSelectedArchiveCategories = false;
   bool _isUpdatingSelectedArchiveCategories = false;
+  bool _isUpdatingSelectedArchiveRating = false;
+  bool _isDeletingSelectedArchive = false;
   String? _selectedArchiveCategoryMessage;
   bool _selectedArchiveCategoryMessageIsError = false;
   bool _isRefreshRevalidating = false;
@@ -206,6 +209,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         _selectedArchiveCategories = const [];
         _isLoadingSelectedArchiveCategories = false;
         _isUpdatingSelectedArchiveCategories = false;
+        _isUpdatingSelectedArchiveRating = false;
         _selectedArchiveCategoryMessage = null;
         _selectedArchiveCategoryMessageIsError = false;
         _isRefreshRevalidating = false;
@@ -499,6 +503,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _selectedArchiveCategories = const [];
       _isLoadingSelectedArchiveCategories = true;
       _isUpdatingSelectedArchiveCategories = false;
+      _isUpdatingSelectedArchiveRating = false;
+      _isDeletingSelectedArchive = false;
       _selectedArchiveCategoryMessage = null;
       _selectedArchiveCategoryMessageIsError = false;
     });
@@ -514,9 +520,97 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _selectedArchiveCategories = const [];
       _isLoadingSelectedArchiveCategories = false;
       _isUpdatingSelectedArchiveCategories = false;
+      _isUpdatingSelectedArchiveRating = false;
+      _isDeletingSelectedArchive = false;
       _selectedArchiveCategoryMessage = null;
       _selectedArchiveCategoryMessageIsError = false;
     });
+  }
+
+  bool _isArchiveRatingTag(String tag) {
+    return tag.trim().toLowerCase().startsWith(_archiveRatingPrefix);
+  }
+
+  int? _archiveRatingFromTags(Iterable<String> tags) {
+    for (final rawTag in tags) {
+      final normalizedTag = rawTag.trim();
+      if (!_isArchiveRatingTag(normalizedTag)) {
+        continue;
+      }
+      final stars = '⭐'.allMatches(normalizedTag).length;
+      if (stars >= 1 && stars <= 5) {
+        return stars;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _updateSelectedArchiveRating(int tappedRating) async {
+    final archive = _selectedArchive;
+    final settings = SettingsModel.instance;
+    if (archive == null ||
+        archive.id.trim().isEmpty ||
+        !settings.isValid ||
+        _isUpdatingSelectedArchiveRating) {
+      return;
+    }
+
+    final currentRating = _archiveRatingFromTags(archive.parsedTags);
+    final nextRating = currentRating == tappedRating ? null : tappedRating;
+    final nextTags = archive.parsedTags
+        .where((tag) => !_isArchiveRatingTag(tag))
+        .toList(growable: true);
+    if (nextRating != null) {
+      nextTags.add('rating:${'⭐' * nextRating}');
+    }
+    final nextTagString = nextTags.join(', ');
+
+    setState(() {
+      _isUpdatingSelectedArchiveRating = true;
+      _selectedArchiveCategoryMessage = null;
+      _selectedArchiveCategoryMessageIsError = false;
+    });
+
+    try {
+      await LanraragiClient(
+        settings.serverUrl,
+        settings.apiKey,
+      ).updateArchiveMetadata(archive.id, tags: nextTagString);
+      if (!mounted || _selectedArchive?.id != archive.id) {
+        return;
+      }
+
+      final updatedArchive = archive.copyWith(tags: nextTagString);
+      final nextItems = _items
+          .map((entry) => entry.id == archive.id ? updatedArchive : entry)
+          .toList(growable: false);
+
+      setState(() {
+        _selectedArchive = updatedArchive;
+        _items = nextItems;
+      });
+      _libraryState.setItems(
+        nextItems,
+        archiveCount: _libraryState.lastKnownArchiveCount,
+      );
+    } catch (error) {
+      if (!mounted || _selectedArchive?.id != archive.id) {
+        return;
+      }
+      setState(() {
+        _selectedArchiveCategoryMessage = error.toString().replaceFirst(
+          'LanraragiException: ',
+          '',
+        );
+        _selectedArchiveCategoryMessageIsError = true;
+      });
+    } finally {
+      if (mounted && _selectedArchive?.id == archive.id) {
+        setState(() {
+          _isUpdatingSelectedArchiveRating = false;
+        });
+      }
+    }
   }
 
   void _readSelectedArchive() {
@@ -717,6 +811,76 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           ),
         ),
       );
+  }
+
+  Future<void> _deleteSelectedArchive() async {
+    final archive = _selectedArchive;
+    final settings = SettingsModel.instance;
+    if (archive == null || archive.id.trim().isEmpty || !settings.isValid) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => _DeleteArchiveDialog(archiveTitle: archive.title),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isDeletingSelectedArchive = true;
+      _selectedArchiveCategoryMessage = null;
+      _selectedArchiveCategoryMessageIsError = false;
+    });
+
+    final archiveId = archive.id;
+    final client = LanraragiClient(settings.serverUrl, settings.apiKey);
+
+    try {
+      await client.deleteArchive(archiveId);
+      if (!mounted) {
+        return;
+      }
+
+      final nextItems = _items
+          .where((entry) => entry.id != archiveId)
+          .toList(growable: false);
+      final nextOnDeckEntries = _sidebarOnDeckEntries
+          .where((entry) => entry.archiveId != archiveId)
+          .toList(growable: false);
+      final nextFilteredResultCount = _filteredResultCount == null
+          ? null
+          : (_filteredResultCount! > 0 ? _filteredResultCount! - 1 : 0);
+      final nextArchiveCount = _libraryState.lastKnownArchiveCount == null
+          ? null
+          : (_libraryState.lastKnownArchiveCount! > 0
+                ? _libraryState.lastKnownArchiveCount! - 1
+                : 0);
+
+      setState(() {
+        _items = nextItems;
+        _sidebarOnDeckEntries = nextOnDeckEntries;
+        _filteredResultCount = nextFilteredResultCount;
+      });
+      _libraryState.setItems(nextItems, archiveCount: nextArchiveCount);
+      _libraryState.setOnDeckEntries(nextOnDeckEntries);
+      await SettingsModel.instance.removeOnDeckEntry(archiveId);
+      _closeArchiveDetails();
+      _showStatusSnackBar('Archive deleted.', isError: false);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isDeletingSelectedArchive = false;
+        _selectedArchiveCategoryMessage = error.toString().replaceFirst(
+          'LanraragiException: ',
+          '',
+        );
+        _selectedArchiveCategoryMessageIsError = true;
+      });
+    }
   }
 
   Future<void> _reloadSelectedArchiveCategoriesIfNeeded() async {
@@ -1515,20 +1679,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       .where((category) => category.isDynamic)
       .toList(growable: false);
 
-  int get _activeFilterCount {
-    var count = 0;
-    if (_newOnly) {
-      count += 1;
-    }
-    if (_untaggedOnly) {
-      count += 1;
-    }
-    if (_hideCompleted) {
-      count += 1;
-    }
-    return count;
-  }
-
   void _toggleFlagFilter({
     required bool currentValue,
     required void Function(bool nextValue) apply,
@@ -1545,6 +1695,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   List<_GroupedTagNamespace> _groupArchiveTags(Archive archive) {
     final grouped = <String, List<String>>{};
     for (final rawTag in archive.parsedTags) {
+      if (_isArchiveRatingTag(rawTag)) {
+        continue;
+      }
       final separatorIndex = rawTag.indexOf(':');
       final namespace = separatorIndex == -1
           ? 'tag'
@@ -1695,7 +1848,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             ),
             const SizedBox(width: 8),
             _FiltersMenuButton(
-              activeCount: _activeFilterCount,
               newOnly: _newOnly,
               untaggedOnly: _untaggedOnly,
               hideCompleted: _hideCompleted,
@@ -1981,6 +2133,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                                 _isLoadingSelectedArchiveCategories,
                             isUpdatingCategories:
                                 _isUpdatingSelectedArchiveCategories,
+                            isUpdatingRating:
+                              _isUpdatingSelectedArchiveRating,
+                            isDeletingArchive: _isDeletingSelectedArchive,
+                            currentRating: _selectedArchive == null
+                              ? null
+                              : _archiveRatingFromTags(
+                                _selectedArchive!.parsedTags,
+                                ),
                             categoryMessage: _selectedArchiveCategoryMessage,
                             categoryMessageIsError:
                                 _selectedArchiveCategoryMessageIsError,
@@ -1989,6 +2149,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                                 : _groupArchiveTags(_selectedArchive!),
                             onClose: _closeArchiveDetails,
                             onRead: _readSelectedArchive,
+                            onDelete: _deleteSelectedArchive,
+                            onRatingSelected: _updateSelectedArchiveRating,
                             onTagSelected: _applyTagFilter,
                             onAddToCategory: _addSelectedArchiveToCategory,
                             onRemoveFromCategory:
@@ -2708,7 +2870,6 @@ class _CategoryFilterMenu extends StatelessWidget {
 
 class _FiltersMenuButton extends StatelessWidget {
   const _FiltersMenuButton({
-    required this.activeCount,
     required this.newOnly,
     required this.untaggedOnly,
     required this.hideCompleted,
@@ -2717,7 +2878,6 @@ class _FiltersMenuButton extends StatelessWidget {
     required this.onToggleHideCompleted,
   });
 
-  final int activeCount;
   final bool newOnly;
   final bool untaggedOnly;
   final bool hideCompleted;
@@ -2782,36 +2942,27 @@ class _FiltersMenuButton extends StatelessWidget {
                 ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
+                    horizontal: 6,
                     vertical: 8,
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisSize: MainAxisSize.max,
                     children: [
-                      RichText(
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        text: TextSpan(
+                      Flexible(
+                        child: Text(
+                          AppStrings.filters,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          softWrap: false,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: AppTheme.textPrimary,
                           ),
-                          children: [
-                            const TextSpan(text: AppStrings.filters),
-                            if (activeCount > 0)
-                              TextSpan(
-                                text: ' ($activeCount)',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: const Color(0xFF49D7E8),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                          ],
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 4),
                       const Icon(
                         Icons.expand_more,
-                        size: 16,
+                        size: 14,
                         color: AppTheme.textSecondary,
                       ),
                     ],
@@ -2974,6 +3125,7 @@ class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
           color: _hovered ? highlightColor : const Color(0xFF1E1E1E),
           child: InkWell(
             onTap: widget.onSelect,
+            mouseCursor: SystemMouseCursors.click,
             onSecondaryTapDown: widget.onActionSelected == null
                 ? null
                 : (details) => _showContextMenu(details.globalPosition),
@@ -3056,11 +3208,16 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
     required this.availableStaticCategories,
     required this.isLoadingCategories,
     required this.isUpdatingCategories,
+    required this.isUpdatingRating,
+    required this.isDeletingArchive,
+    required this.currentRating,
     required this.categoryMessage,
     required this.categoryMessageIsError,
     required this.groupedTags,
     required this.onClose,
     required this.onRead,
+    required this.onDelete,
+    required this.onRatingSelected,
     required this.onTagSelected,
     required this.onAddToCategory,
     required this.onRemoveFromCategory,
@@ -3071,11 +3228,16 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
   final List<LanraragiCategory> availableStaticCategories;
   final bool isLoadingCategories;
   final bool isUpdatingCategories;
+  final bool isUpdatingRating;
+  final bool isDeletingArchive;
+  final int? currentRating;
   final String? categoryMessage;
   final bool categoryMessageIsError;
   final List<_GroupedTagNamespace> groupedTags;
   final VoidCallback onClose;
   final VoidCallback onRead;
+  final VoidCallback onDelete;
+  final ValueChanged<int> onRatingSelected;
   final ValueChanged<String> onTagSelected;
   final ValueChanged<String> onAddToCategory;
   final ValueChanged<String> onRemoveFromCategory;
@@ -3198,6 +3360,12 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
                                     : '${archive!.pageCount} pages',
                                 style: Theme.of(context).textTheme.bodyMedium
                                     ?.copyWith(color: AppTheme.textSecondary),
+                              ),
+                              const SizedBox(height: 10),
+                              _ArchiveRatingRow(
+                                currentRating: currentRating,
+                                isUpdating: isUpdatingRating,
+                                onSelected: onRatingSelected,
                               ),
                               const SizedBox(height: 16),
                               _buildSectionLabel(
@@ -3399,23 +3567,81 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
               if (archive != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: onRead,
-                      style: const ButtonStyle(
-                        mouseCursor: WidgetStatePropertyAll(
-                          SystemMouseCursors.click,
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: isDeletingArchive ? null : onDelete,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFDA7D86),
+                            side: const BorderSide(
+                              color: Color(0xFF6A343A),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: Text(
+                            isDeletingArchive ? 'Deleting...' : 'Delete',
+                          ),
                         ),
                       ),
-                      child: const Text('Read'),
-                    ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: isDeletingArchive ? null : onRead,
+                          style: const ButtonStyle(
+                            mouseCursor: WidgetStatePropertyAll(
+                              SystemMouseCursors.click,
+                            ),
+                          ),
+                          child: const Text('Read'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ArchiveRatingRow extends StatelessWidget {
+  const _ArchiveRatingRow({
+    required this.currentRating,
+    required this.isUpdating,
+    required this.onSelected,
+  });
+
+  final int? currentRating;
+  final bool isUpdating;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: List.generate(5, (index) {
+        final starValue = index + 1;
+        final isActive = currentRating != null && starValue <= currentRating!;
+        return IconButton(
+          onPressed: isUpdating ? null : () => onSelected(starValue),
+          tooltip: '$starValue star${starValue == 1 ? '' : 's'}',
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          mouseCursor: isUpdating
+              ? SystemMouseCursors.basic
+              : SystemMouseCursors.click,
+          icon: Icon(
+            Icons.star,
+            size: 18,
+            color: isActive ? const Color(0xFF49D7E8) : AppTheme.textMuted,
+          ),
+        );
+      }),
     );
   }
 }
@@ -4216,6 +4442,92 @@ class _DeleteCategoryDialog extends StatelessWidget {
                         ),
                       ),
                       child: const Text(AppStrings.delete),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DeleteArchiveDialog extends StatelessWidget {
+  const _DeleteArchiveDialog({required this.archiveTitle});
+
+  final String archiveTitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 380),
+          child: Container(
+            color: const Color(0xFF1A1A1A),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Delete Archive',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Are you sure you want to delete this archive? This cannot be undone.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  archiveTitle,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text(AppStrings.cancel),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF8A3D45),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero,
+                        ),
+                        minimumSize: const Size(0, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        textStyle: theme.textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      child: const Text('Delete'),
                     ),
                   ],
                 ),

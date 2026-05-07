@@ -244,6 +244,25 @@ class SettingsModel extends ChangeNotifier {
     await _persistOnDeckEntries();
   }
 
+  /// Removes a locally cached On Deck entry.
+  Future<void> removeOnDeckEntry(String archiveId) async {
+    final normalizedId = archiveId.trim();
+    if (normalizedId.isEmpty) {
+      return;
+    }
+
+    final nextEntries = onDeckEntries
+        .where((entry) => entry.archiveId != normalizedId)
+        .toList(growable: false);
+    if (nextEntries.length == onDeckEntries.length) {
+      return;
+    }
+
+    onDeckEntries = List.unmodifiable(nextEntries);
+    notifyListeners();
+    await _persistOnDeckEntries();
+  }
+
   /// Persists whether the app should use local On Deck fallback data.
   Future<void> setUseLocalOnDeckFallback(bool value) async {
     if (useLocalOnDeckFallback == value) {

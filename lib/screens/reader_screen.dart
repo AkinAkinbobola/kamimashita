@@ -109,6 +109,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   _ArchiveBoundary? _armedArchiveBoundary;
   _ArchiveBoundary? _visibleArchiveBoundary;
 
+  MouseCursor _activeCursor(MouseCursor normal) {
+    return _cursorVisible ? normal : SystemMouseCursors.none;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1161,12 +1165,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final headers = SettingsModel.instance.authHeader();
     final theme = Theme.of(context);
 
-    return SelectionContainer.disabled(
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: FutureBuilder<_ReaderDocument>(
-          future: _documentFuture,
-          builder: (context, snapshot) {
+    return MouseRegion(
+      cursor: _activeCursor(SystemMouseCursors.basic),
+      onHover: _handleReaderHover,
+      child: SelectionContainer.disabled(
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: FutureBuilder<_ReaderDocument>(
+            future: _documentFuture,
+            builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
@@ -1221,12 +1228,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
               focusNode: _readerFocusNode,
               autofocus: true,
               onKeyEvent: (node, event) => _handleKeyEvent(event, document),
-              child: MouseRegion(
-                cursor: _cursorVisible
-                    ? SystemMouseCursors.basic
-                    : SystemMouseCursors.none,
-                onHover: _handleReaderHover,
-                child: Listener(
+              child: Listener(
                   behavior: HitTestBehavior.translucent,
                   onPointerDown: _handleReaderPointerDown,
                   child: Stack(
@@ -1287,6 +1289,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                                 onInteraction:
                                                     _handleReaderToggleControlsTap,
                                                 onRetryRequested: _retry,
+                                                mouseCursor: _activeCursor(
+                                                  SystemMouseCursors.click,
+                                                ),
                                               ),
                                             );
                                           },
@@ -1352,6 +1357,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                           _handleReaderToggleControlsTap,
                                       onInteraction: null,
                                       onRetryRequested: _retry,
+                                      mouseCursor: _activeCursor(
+                                        SystemMouseCursors.click,
+                                      ),
                                     );
                                   },
                                 ),
@@ -1362,6 +1370,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                         left: 0,
                         right: 0,
                         child: MouseRegion(
+                          cursor: _activeCursor(SystemMouseCursors.basic),
                           onEnter: (_) => _setControlsHovering(true),
                           onExit: (_) => _setControlsHovering(false),
                           child: IgnorePointer(
@@ -1396,6 +1405,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                         child: Row(
                                           children: [
                                             _ReaderBarButton(
+                                              mouseCursor: _activeCursor(
+                                                SystemMouseCursors.click,
+                                              ),
                                               tooltip: 'Exit reader',
                                               icon: Icons.arrow_back_rounded,
                                               onPressed: _exitReader,
@@ -1433,6 +1445,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                             ),
                                             const SizedBox(width: 8),
                                             _ReaderBarButton(
+                                              mouseCursor: _activeCursor(
+                                                SystemMouseCursors.click,
+                                              ),
                                               tooltip: 'Reader settings',
                                               icon: Icons.tune_rounded,
                                               onPressed: _toggleSettingsPopover,
@@ -1441,6 +1456,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                             if (_supportsWindowFullscreen) ...[
                                               const SizedBox(width: 4),
                                               _ReaderBarButton(
+                                                mouseCursor: _activeCursor(
+                                                  SystemMouseCursors.click,
+                                                ),
                                                 tooltip: _isFullscreen
                                                     ? 'Exit fullscreen'
                                                     : 'Fullscreen',
@@ -1454,6 +1472,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                             ],
                                             const SizedBox(width: 4),
                                             _ReaderBarButton(
+                                              mouseCursor: _activeCursor(
+                                                SystemMouseCursors.click,
+                                              ),
                                               tooltip: 'Reload pages',
                                               icon: Icons.refresh_rounded,
                                               onPressed: _retry,
@@ -1461,6 +1482,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                             if (_showsReaderWindowControls) ...[
                                               const SizedBox(width: 4),
                                               _ReaderBarButton(
+                                                mouseCursor: _activeCursor(
+                                                  SystemMouseCursors.click,
+                                                ),
                                                 tooltip: 'Minimize window',
                                                 icon: Icons.horizontal_rule_rounded,
                                                 onPressed: () async {
@@ -1469,6 +1493,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                               ),
                                               const SizedBox(width: 4),
                                               _ReaderBarButton(
+                                                mouseCursor: _activeCursor(
+                                                  SystemMouseCursors.click,
+                                                ),
                                                 tooltip: 'Close window',
                                                 icon: Icons.close_rounded,
                                                 onPressed: () async {
@@ -1492,6 +1519,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                         left: 0,
                         right: 0,
                         child: MouseRegion(
+                          cursor: _activeCursor(SystemMouseCursors.basic),
                           onEnter: (_) => _setControlsHovering(true),
                           onExit: (_) => _setControlsHovering(false),
                           child: IgnorePointer(
@@ -1525,6 +1553,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                       child: Row(
                                         children: [
                                           _ReaderBarButton(
+                                            mouseCursor: _activeCursor(
+                                              SystemMouseCursors.click,
+                                            ),
                                             tooltip: 'Previous page',
                                             icon: Icons.chevron_left_rounded,
                                             onPressed:
@@ -1580,9 +1611,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                             onZoomReset: _resetZoomLevel,
                                             onZoomIn: () =>
                                                 _adjustZoomLevel(0.1),
+                                            mouseCursor: _activeCursor(
+                                              SystemMouseCursors.click,
+                                            ),
                                           ),
                                           const SizedBox(width: 8),
                                           _ReaderBarButton(
+                                            mouseCursor: _activeCursor(
+                                              SystemMouseCursors.click,
+                                            ),
                                             tooltip: 'Next page',
                                             icon: Icons.chevron_right_rounded,
                                             onPressed:
@@ -1605,7 +1642,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                       if (_showSettingsPopover)
                         Positioned.fill(
                           child: MouseRegion(
-                            cursor: SystemMouseCursors.click,
+                            cursor: _activeCursor(SystemMouseCursors.click),
                             child: GestureDetector(
                               behavior: HitTestBehavior.opaque,
                               onTap: _closeSettingsPopover,
@@ -1624,6 +1661,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                               continuousScroll: _continuousScroll,
                               rightToLeft: _rightToLeft,
                               autoHideChrome: _autoHideChrome,
+                              mouseCursor: _activeCursor(
+                                SystemMouseCursors.click,
+                              ),
                               onFitModeChanged: (mode) {
                                 setState(() {
                                   _fitMode = mode;
@@ -1677,7 +1717,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                               children: [
                                 Positioned.fill(
                                   child: MouseRegion(
-                                    cursor: SystemMouseCursors.click,
+                                    cursor: _activeCursor(
+                                      SystemMouseCursors.click,
+                                    ),
                                     child: GestureDetector(
                                       behavior: HitTestBehavior.opaque,
                                       onTap: _clearArchiveBoundaryState,
@@ -1710,6 +1752,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                           boundary:
                                               _visibleArchiveBoundary ??
                                               _ArchiveBoundary.end,
+                                          mouseCursor: _activeCursor(
+                                            SystemMouseCursors.click,
+                                          ),
                                           onDismiss: _clearArchiveBoundaryState,
                                           onBackToLibrary:
                                               _handleArchiveBoundaryBackToLibrary,
@@ -1726,9 +1771,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                     ],
                   ),
                 ),
-              ),
             );
-          },
+            },
+          ),
         ),
       ),
     );
@@ -1751,12 +1796,14 @@ class _ArchiveBoundaryCard extends StatelessWidget {
   const _ArchiveBoundaryCard({
     required this.archive,
     required this.boundary,
+    required this.mouseCursor,
     required this.onDismiss,
     required this.onBackToLibrary,
   });
 
   final Archive archive;
   final _ArchiveBoundary boundary;
+  final MouseCursor mouseCursor;
   final VoidCallback onDismiss;
   final VoidCallback onBackToLibrary;
 
@@ -1765,12 +1812,14 @@ class _ArchiveBoundaryCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isBeginning = boundary == _ArchiveBoundary.beginning;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {},
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: DecoratedBox(
+    return MouseRegion(
+      cursor: mouseCursor,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {},
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: DecoratedBox(
           decoration: BoxDecoration(
             color: const Color(0xEE101217),
             borderRadius: BorderRadius.circular(24),
@@ -1783,9 +1832,9 @@ class _ArchiveBoundaryCard extends StatelessWidget {
               ),
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
@@ -1848,6 +1897,7 @@ class _ArchiveBoundaryCard extends StatelessWidget {
                   ),
                 ),
               ],
+              ),
             ),
           ),
         ),
@@ -1858,12 +1908,14 @@ class _ArchiveBoundaryCard extends StatelessWidget {
 
 class _ReaderBarButton extends StatefulWidget {
   const _ReaderBarButton({
+    required this.mouseCursor,
     required this.tooltip,
     required this.icon,
     required this.onPressed,
     this.active = false,
   });
 
+  final MouseCursor mouseCursor;
   final String tooltip;
   final IconData icon;
   final VoidCallback? onPressed;
@@ -1888,7 +1940,7 @@ class _ReaderBarButtonState extends State<_ReaderBarButton> {
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
-        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        cursor: enabled ? widget.mouseCursor : SystemMouseCursors.none,
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
@@ -1913,6 +1965,7 @@ class _ReaderSettingsPopover extends StatelessWidget {
     required this.continuousScroll,
     required this.rightToLeft,
     required this.autoHideChrome,
+    required this.mouseCursor,
     required this.onFitModeChanged,
     required this.onContinuousScrollChanged,
     required this.onRightToLeftChanged,
@@ -1923,6 +1976,7 @@ class _ReaderSettingsPopover extends StatelessWidget {
   final bool continuousScroll;
   final bool rightToLeft;
   final bool autoHideChrome;
+  final MouseCursor mouseCursor;
   final ValueChanged<ReaderFitMode> onFitModeChanged;
   final ValueChanged<bool> onContinuousScrollChanged;
   final ValueChanged<bool> onRightToLeftChanged;
@@ -1975,6 +2029,7 @@ class _ReaderSettingsPopover extends StatelessWidget {
                             selected: fitMode == option.$2,
                             onTap: () => onFitModeChanged(option.$2),
                             accentColor: _accent,
+                            mouseCursor: mouseCursor,
                           ),
                         )
                         .toList(growable: false),
@@ -1996,12 +2051,14 @@ class _ReaderSettingsPopover extends StatelessWidget {
                     selected: !continuousScroll,
                     onTap: () => onContinuousScrollChanged(false),
                     accentColor: _accent,
+                    mouseCursor: mouseCursor,
                   ),
                   _ReaderTextToggle(
                     label: 'Scroll',
                     selected: continuousScroll,
                     onTap: () => onContinuousScrollChanged(true),
                     accentColor: _accent,
+                    mouseCursor: mouseCursor,
                   ),
                 ],
               ),
@@ -2022,12 +2079,14 @@ class _ReaderSettingsPopover extends StatelessWidget {
                     selected: !rightToLeft,
                     onTap: () => onRightToLeftChanged(false),
                     accentColor: _accent,
+                    mouseCursor: mouseCursor,
                   ),
                   _ReaderTextToggle(
                     label: 'Right to left',
                     selected: rightToLeft,
                     onTap: () => onRightToLeftChanged(true),
                     accentColor: _accent,
+                    mouseCursor: mouseCursor,
                   ),
                 ],
               ),
@@ -2064,12 +2123,14 @@ class _ReaderTextToggle extends StatefulWidget {
     required this.selected,
     required this.onTap,
     required this.accentColor,
+    required this.mouseCursor,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
   final Color accentColor;
+  final MouseCursor mouseCursor;
 
   @override
   State<_ReaderTextToggle> createState() => _ReaderTextToggleState();
@@ -2087,7 +2148,7 @@ class _ReaderTextToggleState extends State<_ReaderTextToggle> {
         : Colors.transparent;
 
     return MouseRegion(
-      cursor: SystemMouseCursors.click,
+      cursor: widget.mouseCursor,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
@@ -2125,12 +2186,14 @@ class _ReaderZoomControl extends StatelessWidget {
     required this.onZoomOut,
     required this.onZoomReset,
     required this.onZoomIn,
+    required this.mouseCursor,
   });
 
   final double zoomLevel;
   final VoidCallback onZoomOut;
   final VoidCallback onZoomReset;
   final VoidCallback onZoomIn;
+  final MouseCursor mouseCursor;
 
   @override
   Widget build(BuildContext context) {
@@ -2152,9 +2215,10 @@ class _ReaderZoomControl extends StatelessWidget {
               tooltip: 'Zoom out',
               label: '-',
               onPressed: onZoomOut,
+              mouseCursor: mouseCursor,
             ),
             MouseRegion(
-              cursor: SystemMouseCursors.click,
+              cursor: mouseCursor,
               child: GestureDetector(
                 onTap: onZoomReset,
                 behavior: HitTestBehavior.opaque,
@@ -2177,6 +2241,7 @@ class _ReaderZoomControl extends StatelessWidget {
               tooltip: 'Zoom in',
               label: '+',
               onPressed: onZoomIn,
+              mouseCursor: mouseCursor,
             ),
           ],
         ),
@@ -2190,11 +2255,13 @@ class _ReaderZoomButton extends StatefulWidget {
     required this.tooltip,
     required this.label,
     required this.onPressed,
+    required this.mouseCursor,
   });
 
   final String tooltip;
   final String label;
   final VoidCallback onPressed;
+  final MouseCursor mouseCursor;
 
   @override
   State<_ReaderZoomButton> createState() => _ReaderZoomButtonState();
@@ -2210,7 +2277,7 @@ class _ReaderZoomButtonState extends State<_ReaderZoomButton> {
     return Tooltip(
       message: widget.tooltip,
       child: MouseRegion(
-        cursor: SystemMouseCursors.click,
+        cursor: widget.mouseCursor,
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
@@ -2257,6 +2324,7 @@ class _ReaderPage extends StatefulWidget {
     this.onToggleControlsRequested,
     required this.onInteraction,
     required this.onRetryRequested,
+    required this.mouseCursor,
   });
 
   final ImageProvider<Object> imageProvider;
@@ -2278,6 +2346,7 @@ class _ReaderPage extends StatefulWidget {
   final VoidCallback? onToggleControlsRequested;
   final VoidCallback? onInteraction;
   final VoidCallback onRetryRequested;
+  final MouseCursor mouseCursor;
 
   @override
   State<_ReaderPage> createState() => _ReaderPageState();
@@ -2519,7 +2588,7 @@ class _ReaderPageState extends State<_ReaderPage>
   }
 
   bool handleKeyboardScroll(double deltaY) {
-    return _applyAnimatedScrollDelta(deltaY);
+    return _applyPagedKeyboardDelta(deltaY);
   }
 
   double keyboardScrollStep() {
@@ -2610,6 +2679,48 @@ class _ReaderPageState extends State<_ReaderPage>
     _animatedScrollTarget = null;
     _handlePagedWheelEdgePush(direction, deltaY.abs());
     return true;
+  }
+
+  bool _applyPagedKeyboardDelta(double deltaY) {
+    if (!widget.pagedNavigationEnabled) {
+      return false;
+    }
+
+    _animatedScrollTarget = null;
+    _resetPagedWheelEdgeArming();
+    final direction = deltaY > 0 ? _PagedWheelEdge.bottom : _PagedWheelEdge.top;
+
+    if (!_verticalScrollController.hasClients) {
+      _triggerKeyboardPageTurn(direction);
+      return true;
+    }
+
+    final position = _verticalScrollController.position;
+    final currentOffset = position.pixels;
+    final targetOffset = (currentOffset + deltaY).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+
+    if ((targetOffset - currentOffset).abs() > 0.5) {
+      _verticalScrollController.animateTo(
+        targetOffset,
+        duration: _keyboardScrollDuration,
+        curve: Curves.easeOut,
+      );
+      return true;
+    }
+
+    _triggerKeyboardPageTurn(direction);
+    return true;
+  }
+
+  void _triggerKeyboardPageTurn(_PagedWheelEdge direction) {
+    if (direction == _PagedWheelEdge.bottom) {
+      widget.onNextPageRequested?.call();
+    } else {
+      widget.onPreviousPageRequested?.call();
+    }
   }
 
   void _handlePagedWheelScroll(double deltaY) {
@@ -2860,11 +2971,14 @@ class _ReaderPageState extends State<_ReaderPage>
         if (widget.continuousLayout) {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
-            child: GestureDetector(
-              supportedDevices: _desktopGestureDevices,
-              onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
-              onTap: widget.onInteraction,
-              child: image,
+            child: MouseRegion(
+              cursor: widget.mouseCursor,
+              child: GestureDetector(
+                supportedDevices: _desktopGestureDevices,
+                onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
+                onTap: widget.onInteraction,
+                child: image,
+              ),
             ),
           );
         }
@@ -2876,33 +2990,39 @@ class _ReaderPageState extends State<_ReaderPage>
               behavior: HitTestBehavior.opaque,
               onPointerSignal: _handlePagedPointerSignal,
               onPointerPanZoomUpdate: _handlePagedPanZoomUpdate,
-              child: GestureDetector(
-                supportedDevices: _desktopGestureDevices,
-                behavior: HitTestBehavior.opaque,
-                onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
-                onTapUp: (details) =>
-                    _handlePagedViewportTap(details, viewportSize),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    zoomableImage,
-                    Align(
-                      alignment: Alignment.center,
-                      child: FractionallySizedBox(
-                        widthFactor: 0.34,
-                        heightFactor: 1,
-                        child: GestureDetector(
-                          supportedDevices: _desktopGestureDevices,
-                          behavior: HitTestBehavior.opaque,
-                          onTap: widget.onToggleControlsRequested,
-                          onDoubleTap: widget.zoomEnabled
-                              ? _resetZoomToDefault
-                              : null,
-                          child: const SizedBox.expand(),
+              child: MouseRegion(
+                cursor: widget.mouseCursor,
+                child: GestureDetector(
+                  supportedDevices: _desktopGestureDevices,
+                  behavior: HitTestBehavior.opaque,
+                  onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
+                  onTapUp: (details) =>
+                      _handlePagedViewportTap(details, viewportSize),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      zoomableImage,
+                      Align(
+                        alignment: Alignment.center,
+                        child: FractionallySizedBox(
+                          widthFactor: 0.34,
+                          heightFactor: 1,
+                          child: MouseRegion(
+                            cursor: widget.mouseCursor,
+                            child: GestureDetector(
+                              supportedDevices: _desktopGestureDevices,
+                              behavior: HitTestBehavior.opaque,
+                              onTap: widget.onToggleControlsRequested,
+                              onDoubleTap: widget.zoomEnabled
+                                  ? _resetZoomToDefault
+                                  : null,
+                              child: const SizedBox.expand(),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -2911,13 +3031,16 @@ class _ReaderPageState extends State<_ReaderPage>
 
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
-          child: GestureDetector(
-            supportedDevices: _desktopGestureDevices,
-            onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
-            onTap: widget.onInteraction,
-            child: Listener(
-              onPointerSignal: _handlePagedPointerSignal,
-              child: zoomableImage,
+          child: MouseRegion(
+            cursor: widget.mouseCursor,
+            child: GestureDetector(
+              supportedDevices: _desktopGestureDevices,
+              onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
+              onTap: widget.onInteraction,
+              child: Listener(
+                onPointerSignal: _handlePagedPointerSignal,
+                child: zoomableImage,
+              ),
             ),
           ),
         );
