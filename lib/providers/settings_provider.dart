@@ -93,6 +93,24 @@ class SettingsModel extends ChangeNotifier {
   /// Whether thumbnails should be cropped in the grid.
   bool cropThumbnails = false;
 
+  /// Persisted selected library category ID.
+  String librarySelectedCategoryId = '';
+
+  /// Persisted library sort option ID.
+  String librarySortId = 'title';
+
+  /// Persisted library sort order.
+  String librarySortOrder = 'asc';
+
+  /// Whether the library new-only filter is enabled.
+  bool libraryNewOnly = false;
+
+  /// Whether the library untagged-only filter is enabled.
+  bool libraryUntaggedOnly = false;
+
+  /// Whether the library hide-completed filter is enabled.
+  bool libraryHideCompleted = false;
+
   /// Persisted reader fit mode.
   String readerFitMode = 'contain';
 
@@ -131,6 +149,12 @@ class SettingsModel extends ChangeNotifier {
       serverUrl = data.serverUrl;
       apiKey = data.apiKey;
       cropThumbnails = data.cropThumbnails;
+      librarySelectedCategoryId = data.librarySelectedCategoryId;
+      librarySortId = data.librarySortId;
+      librarySortOrder = data.librarySortOrder;
+      libraryNewOnly = data.libraryNewOnly;
+      libraryUntaggedOnly = data.libraryUntaggedOnly;
+      libraryHideCompleted = data.libraryHideCompleted;
       readerFitMode = data.readerFitMode;
       readerContinuousScroll = data.readerContinuousScroll;
       readerRightToLeft = data.readerRightToLeft;
@@ -166,6 +190,66 @@ class SettingsModel extends ChangeNotifier {
       apiKey: this.apiKey,
       cropThumbnails: this.cropThumbnails,
     );
+  }
+
+  /// Updates persisted library filter preferences.
+  Future<void> updateLibraryPreferences({
+    String? selectedCategoryId,
+    String? sortId,
+    String? sortOrder,
+    bool? newOnly,
+    bool? untaggedOnly,
+    bool? hideCompleted,
+  }) async {
+    if (selectedCategoryId != null) {
+      librarySelectedCategoryId = selectedCategoryId.trim();
+    }
+    if (sortId != null && sortId.trim().isNotEmpty) {
+      librarySortId = sortId.trim();
+    }
+    if (sortOrder != null && sortOrder.trim().isNotEmpty) {
+      librarySortOrder = sortOrder.trim();
+    }
+    if (newOnly != null) {
+      libraryNewOnly = newOnly;
+    }
+    if (untaggedOnly != null) {
+      libraryUntaggedOnly = untaggedOnly;
+    }
+    if (hideCompleted != null) {
+      libraryHideCompleted = hideCompleted;
+    }
+
+    notifyListeners();
+    try {
+      await SettingsStorageService.instance.saveLibraryPreferences(
+        selectedCategoryId: librarySelectedCategoryId,
+        sortId: librarySortId,
+        sortOrder: librarySortOrder,
+        newOnly: libraryNewOnly,
+        untaggedOnly: libraryUntaggedOnly,
+        hideCompleted: libraryHideCompleted,
+      );
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  /// Clears persisted library filter preferences and resets them to defaults.
+  Future<void> clearLibraryPreferences() async {
+    librarySelectedCategoryId = '';
+    librarySortId = 'title';
+    librarySortOrder = 'asc';
+    libraryNewOnly = false;
+    libraryUntaggedOnly = false;
+    libraryHideCompleted = false;
+
+    notifyListeners();
+    try {
+      await SettingsStorageService.instance.clearLibraryPreferences();
+    } catch (_) {
+      // ignore
+    }
   }
 
   /// Updates persisted reader preferences.
@@ -291,6 +375,12 @@ class SettingsModel extends ChangeNotifier {
     serverUrl = '';
     apiKey = '';
     cropThumbnails = false;
+    librarySelectedCategoryId = '';
+    librarySortId = 'title';
+    librarySortOrder = 'asc';
+    libraryNewOnly = false;
+    libraryUntaggedOnly = false;
+    libraryHideCompleted = false;
     readerFitMode = 'contain';
     readerContinuousScroll = false;
     readerRightToLeft = false;

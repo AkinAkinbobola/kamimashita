@@ -97,8 +97,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   bool _isRefreshRevalidating = false;
   bool _isBackgroundLibraryRefreshActive = false;
   DateTime? _lastSuccessfulFocusRevalidationAt;
+  bool _didApplyPersistedLibraryFilters = false;
+  bool _didRunInitialLibraryLoad = false;
 
   bool get _isDetailsOpen => _selectedArchive != null;
+
+  bool get _hasActiveLibraryFilters {
+    return _selectedCategoryId != null ||
+        _selectedSort.id != LibrarySortOption.title.id ||
+        _sortOrder != 'asc' ||
+        _newOnly ||
+        _untaggedOnly ||
+        _hideCompleted;
+  }
 
   LibraryState get _libraryState => ref.read(libraryStateProvider);
 
@@ -151,9 +162,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     _controller.addListener(_onQueryChanged);
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadCategories();
-      _refreshOnDeck();
-      _reloadLibrary();
+      _maybeRunInitialLibraryLoad();
     });
   }
 
@@ -172,6 +181,21 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     final settings = SettingsModel.instance;
     final nextKey = '${settings.serverUrl}|${settings.apiKey}';
     final connectionChanged = nextKey != _settingsConnectionKey;
+
+    if (!_didApplyPersistedLibraryFilters && settings.isLoaded) {
+      _applyPersistedLibraryFilters(settings);
+    }
+
+    if (!_didRunInitialLibraryLoad && settings.isLoaded) {
+      _didRunInitialLibraryLoad = true;
+      if (settings.isValid) {
+        _settingsConnectionKey = nextKey;
+        _loadCategories();
+        _refreshOnDeck();
+        _reloadLibrary();
+        return;
+      }
+    }
 
     setState(() {});
 
@@ -216,6 +240,77 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         _isBackgroundLibraryRefreshActive = false;
       });
     }
+  }
+
+  void _maybeRunInitialLibraryLoad() {
+    final settings = SettingsModel.instance;
+    if (_didRunInitialLibraryLoad || !settings.isLoaded) {
+      return;
+    }
+
+    if (!_didApplyPersistedLibraryFilters) {
+      _applyPersistedLibraryFilters(settings);
+    }
+
+    _didRunInitialLibraryLoad = true;
+    if (!settings.isValid) {
+      return;
+    }
+
+    _settingsConnectionKey = '${settings.serverUrl}|${settings.apiKey}';
+    _loadCategories();
+    _refreshOnDeck();
+    _reloadLibrary();
+  }
+
+  void _applyPersistedLibraryFilters(SettingsModel settings) {
+    _didApplyPersistedLibraryFilters = true;
+
+    final storedCategoryId = settings.librarySelectedCategoryId.trim();
+    final storedSortId = settings.librarySortId.trim();
+    final storedSortOrder = settings.librarySortOrder.trim().toLowerCase();
+
+    setState(() {
+      _selectedCategoryId = storedCategoryId.isEmpty ? null : storedCategoryId;
+      _selectedSort = LibrarySortOption.fromId(
+        storedSortId.isEmpty ? LibrarySortOption.title.id : storedSortId,
+      );
+      _sortOrder = storedSortOrder == 'desc' ? 'desc' : 'asc';
+      _newOnly = settings.libraryNewOnly;
+      _untaggedOnly = settings.libraryUntaggedOnly;
+      _hideCompleted = settings.libraryHideCompleted;
+    });
+  }
+
+  void _persistLibraryFilters() {
+    unawaited(
+      SettingsModel.instance.updateLibraryPreferences(
+        selectedCategoryId: _selectedCategoryId ?? '',
+        sortId: _selectedSort.id,
+        sortOrder: _sortOrder,
+        newOnly: _newOnly,
+        untaggedOnly: _untaggedOnly,
+        hideCompleted: _hideCompleted,
+      ),
+    );
+  }
+
+  void _resetLibraryFilters() {
+    if (!_hasActiveLibraryFilters) {
+      return;
+    }
+
+    setState(() {
+      _selectedCategoryId = null;
+      _selectedSort = LibrarySortOption.title;
+      _sortOrder = 'asc';
+      _newOnly = false;
+      _untaggedOnly = false;
+      _hideCompleted = false;
+    });
+
+    unawaited(SettingsModel.instance.clearLibraryPreferences());
+    _reloadLibrary();
   }
 
   @override
@@ -1650,6 +1745,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     setState(() {
       _selectedSort = nextSort;
     });
+    _persistLibraryFilters();
     _reloadLibrary();
   }
 
@@ -1657,6 +1753,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     setState(() {
       _sortOrder = _sortOrder == 'asc' ? 'desc' : 'asc';
     });
+    _persistLibraryFilters();
     _reloadLibrary();
   }
 
@@ -1668,6 +1765,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     setState(() {
       _selectedCategoryId = nextValue;
     });
+    _persistLibraryFilters();
     _reloadLibrary();
   }
 
@@ -1689,6 +1787,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (nextValue) {
       onEnabled?.call();
     }
+    _persistLibraryFilters();
     _reloadLibrary();
   }
 
@@ -1866,6 +1965,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                 apply: (value) => setState(() => _hideCompleted = value),
               ),
             ),
+            if (_hasActiveLibraryFilters) ...[
+              const SizedBox(width: 8),
+              _ResetFiltersButton(onPressed: _resetLibraryFilters),
+            ],
           ],
         ),
       ),
@@ -2165,6 +2268,44 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _ResetFiltersButton extends StatefulWidget {
+  const _ResetFiltersButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  State<_ResetFiltersButton> createState() => _ResetFiltersButtonState();
+}
+
+class _ResetFiltersButtonState extends State<_ResetFiltersButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _hovered ? const Color(0xFF49D7E8) : AppTheme.textMuted;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+          child: Text(
+            '✕ Reset',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
       ),
     );
   }

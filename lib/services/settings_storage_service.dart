@@ -12,6 +12,12 @@ class StoredSettingsData {
     required this.serverUrl,
     required this.apiKey,
     required this.cropThumbnails,
+    required this.librarySelectedCategoryId,
+    required this.librarySortId,
+    required this.librarySortOrder,
+    required this.libraryNewOnly,
+    required this.libraryUntaggedOnly,
+    required this.libraryHideCompleted,
     required this.readerFitMode,
     required this.readerContinuousScroll,
     required this.readerRightToLeft,
@@ -29,6 +35,24 @@ class StoredSettingsData {
 
   /// Whether thumbnails should be cropped in grids.
   final bool cropThumbnails;
+
+  /// Persisted selected library category ID.
+  final String librarySelectedCategoryId;
+
+  /// Persisted library sort option ID.
+  final String librarySortId;
+
+  /// Persisted library sort order.
+  final String librarySortOrder;
+
+  /// Whether the library new-only filter is enabled.
+  final bool libraryNewOnly;
+
+  /// Whether the library untagged-only filter is enabled.
+  final bool libraryUntaggedOnly;
+
+  /// Whether the library hide-completed filter is enabled.
+  final bool libraryHideCompleted;
 
   /// Persisted reader fit mode name.
   final String readerFitMode;
@@ -64,6 +88,13 @@ class SettingsStorageService {
   static const _legacyApiKeyKey = 'prefs_api_key';
   static const _secureApiKeyKey = 'secure_api_key';
   static const _cropThumbnailsKey = 'prefs_crop_thumbnails';
+  static const _librarySelectedCategoryIdKey =
+      'prefs_library_selected_category_id';
+  static const _librarySortIdKey = 'prefs_library_sort_id';
+  static const _librarySortOrderKey = 'prefs_library_sort_order';
+  static const _libraryNewOnlyKey = 'prefs_library_new_only';
+  static const _libraryUntaggedOnlyKey = 'prefs_library_untagged_only';
+  static const _libraryHideCompletedKey = 'prefs_library_hide_completed';
   static const _readerFitModeKey = 'prefs_reader_fit_mode';
   static const _readerContinuousScrollKey = 'prefs_reader_continuous_scroll';
   static const _readerRightToLeftKey = 'prefs_reader_right_to_left';
@@ -89,6 +120,19 @@ class SettingsStorageService {
       apiKey: apiKey,
       cropThumbnails:
           sharedPreferences.getBool(_cropThumbnailsKey) ?? false,
+        librarySelectedCategoryId:
+          (sharedPreferences.getString(_librarySelectedCategoryIdKey) ?? '')
+            .trim(),
+        librarySortId:
+          (sharedPreferences.getString(_librarySortIdKey) ?? 'title').trim(),
+        librarySortOrder:
+          (sharedPreferences.getString(_librarySortOrderKey) ?? 'asc').trim(),
+        libraryNewOnly:
+          sharedPreferences.getBool(_libraryNewOnlyKey) ?? false,
+        libraryUntaggedOnly:
+          sharedPreferences.getBool(_libraryUntaggedOnlyKey) ?? false,
+        libraryHideCompleted:
+          sharedPreferences.getBool(_libraryHideCompletedKey) ?? false,
       readerFitMode:
           (sharedPreferences.getString(_readerFitModeKey) ?? 'contain').trim(),
       readerContinuousScroll:
@@ -121,6 +165,43 @@ class SettingsStorageService {
     await sharedPreferences.setBool(_cropThumbnailsKey, cropThumbnails);
     await _secureStorage.write(key: _secureApiKeyKey, value: apiKey.trim());
     await sharedPreferences.remove(_legacyApiKeyKey);
+  }
+
+  /// Saves persisted library filter preferences.
+  Future<void> saveLibraryPreferences({
+    required String selectedCategoryId,
+    required String sortId,
+    required String sortOrder,
+    required bool newOnly,
+    required bool untaggedOnly,
+    required bool hideCompleted,
+  }) async {
+    final sharedPreferences = await SharedPreferences.getInstance();
+    await sharedPreferences.setString(
+      _librarySelectedCategoryIdKey,
+      selectedCategoryId.trim(),
+    );
+    await sharedPreferences.setString(_librarySortIdKey, sortId.trim());
+    await sharedPreferences.setString(
+      _librarySortOrderKey,
+      sortOrder.trim(),
+    );
+    await sharedPreferences.setBool(_libraryNewOnlyKey, newOnly);
+    await sharedPreferences.setBool(_libraryUntaggedOnlyKey, untaggedOnly);
+    await sharedPreferences.setBool(_libraryHideCompletedKey, hideCompleted);
+  }
+
+  /// Clears persisted library filter preferences.
+  Future<void> clearLibraryPreferences() async {
+    final sharedPreferences = await SharedPreferences.getInstance();
+    await Future.wait([
+      sharedPreferences.remove(_librarySelectedCategoryIdKey),
+      sharedPreferences.remove(_librarySortIdKey),
+      sharedPreferences.remove(_librarySortOrderKey),
+      sharedPreferences.remove(_libraryNewOnlyKey),
+      sharedPreferences.remove(_libraryUntaggedOnlyKey),
+      sharedPreferences.remove(_libraryHideCompletedKey),
+    ]);
   }
 
   /// Saves persisted reader preferences.
@@ -164,6 +245,12 @@ class SettingsStorageService {
       sharedPreferences.remove(_serverUrlKey),
       sharedPreferences.remove(_legacyApiKeyKey),
       sharedPreferences.remove(_cropThumbnailsKey),
+      sharedPreferences.remove(_librarySelectedCategoryIdKey),
+      sharedPreferences.remove(_librarySortIdKey),
+      sharedPreferences.remove(_librarySortOrderKey),
+      sharedPreferences.remove(_libraryNewOnlyKey),
+      sharedPreferences.remove(_libraryUntaggedOnlyKey),
+      sharedPreferences.remove(_libraryHideCompletedKey),
       sharedPreferences.remove(_readerFitModeKey),
       sharedPreferences.remove(_readerContinuousScrollKey),
       sharedPreferences.remove(_readerRightToLeftKey),
