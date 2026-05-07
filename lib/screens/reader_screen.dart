@@ -190,6 +190,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         _continuousScroll = settings.readerContinuousScroll;
         _rightToLeft = settings.readerRightToLeft;
         _autoHideChrome = settings.readerAutoHideChrome;
+        _zoomLevel = _clampZoomLevel(settings.readerZoomLevel);
         _isControlsVisible = true;
       });
     }
@@ -218,6 +219,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       'originalSize' => ReaderFitMode.originalSize,
       _ => ReaderFitMode.contain,
     };
+  }
+
+  double _clampZoomLevel(double value) {
+    return value.clamp(0.3, 5.0);
   }
 
   Future<void> _applyStoredFullscreenPreference(bool preferred) async {
@@ -538,13 +543,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   }
 
   void _setZoomLevel(double value) {
-    final clamped = value.clamp(0.3, 5.0);
+    final clamped = _clampZoomLevel(value);
     if (_zoomLevel == clamped) {
       return;
     }
     setState(() {
       _zoomLevel = clamped;
     });
+    unawaited(
+      SettingsModel.instance.updateReaderPreferences(zoomLevel: clamped),
+    );
   }
 
   void _adjustZoomLevel(double delta) {
@@ -771,12 +779,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       return;
     }
     final targetPage = _currentPage;
+    const resetZoomLevel = 1.0;
     setState(() {
       _continuousScroll = value;
-      _zoomLevel = 1.0;
+      _zoomLevel = resetZoomLevel;
     });
     unawaited(
-      SettingsModel.instance.updateReaderPreferences(continuousScroll: value),
+      SettingsModel.instance.updateReaderPreferences(
+        continuousScroll: value,
+        zoomLevel: resetZoomLevel,
+      ),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
@@ -1665,14 +1677,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                 SystemMouseCursors.click,
                               ),
                               onFitModeChanged: (mode) {
+                                const resetZoomLevel = 1.0;
                                 setState(() {
                                   _fitMode = mode;
-                                  _zoomLevel = 1.0;
+                                  _zoomLevel = resetZoomLevel;
                                 });
                                 unawaited(
                                   SettingsModel.instance
                                       .updateReaderPreferences(
                                         fitMode: mode.name,
+                                        zoomLevel: resetZoomLevel,
                                       ),
                                 );
                               },

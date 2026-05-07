@@ -22,6 +22,7 @@ class StoredSettingsData {
     required this.readerContinuousScroll,
     required this.readerRightToLeft,
     required this.readerAutoHideChrome,
+    required this.readerZoomLevel,
     required this.readerFullscreen,
     required this.onDeckEntries,
     required this.useLocalOnDeckFallback,
@@ -66,6 +67,9 @@ class StoredSettingsData {
   /// Whether reader chrome auto-hide is enabled.
   final bool readerAutoHideChrome;
 
+  /// Persisted reader zoom level.
+  final double readerZoomLevel;
+
   /// Whether fullscreen preference is enabled.
   final bool readerFullscreen;
 
@@ -99,6 +103,7 @@ class SettingsStorageService {
   static const _readerContinuousScrollKey = 'prefs_reader_continuous_scroll';
   static const _readerRightToLeftKey = 'prefs_reader_right_to_left';
   static const _readerAutoHideChromeKey = 'prefs_reader_auto_hide_chrome';
+  static const _readerZoomLevelKey = 'prefs_reader_zoom_level';
   static const _readerFullscreenKey = 'prefs_reader_fullscreen';
   static const _onDeckEntriesKey = 'prefs_on_deck_entries';
   static const _useLocalOnDeckFallbackKey =
@@ -118,20 +123,19 @@ class SettingsStorageService {
     return StoredSettingsData(
       serverUrl: serverUrl,
       apiKey: apiKey,
-      cropThumbnails:
-          sharedPreferences.getBool(_cropThumbnailsKey) ?? false,
-        librarySelectedCategoryId:
+      cropThumbnails: sharedPreferences.getBool(_cropThumbnailsKey) ?? false,
+      librarySelectedCategoryId:
           (sharedPreferences.getString(_librarySelectedCategoryIdKey) ?? '')
-            .trim(),
-        librarySortId:
+              .trim(),
+      librarySortId:
           (sharedPreferences.getString(_librarySortIdKey) ?? 'title').trim(),
-        librarySortOrder:
+      librarySortOrder:
           (sharedPreferences.getString(_librarySortOrderKey) ?? 'asc').trim(),
-        libraryNewOnly:
+      libraryNewOnly:
           sharedPreferences.getBool(_libraryNewOnlyKey) ?? false,
-        libraryUntaggedOnly:
+      libraryUntaggedOnly:
           sharedPreferences.getBool(_libraryUntaggedOnlyKey) ?? false,
-        libraryHideCompleted:
+      libraryHideCompleted:
           sharedPreferences.getBool(_libraryHideCompletedKey) ?? false,
       readerFitMode:
           (sharedPreferences.getString(_readerFitModeKey) ?? 'contain').trim(),
@@ -141,6 +145,8 @@ class SettingsStorageService {
           sharedPreferences.getBool(_readerRightToLeftKey) ?? false,
       readerAutoHideChrome:
           sharedPreferences.getBool(_readerAutoHideChromeKey) ?? true,
+      readerZoomLevel:
+          (sharedPreferences.getDouble(_readerZoomLevelKey) ?? 1.0),
       readerFullscreen:
           sharedPreferences.getBool(_readerFullscreenKey) ?? false,
       onDeckEntries: _readOnDeckEntries(
@@ -210,6 +216,7 @@ class SettingsStorageService {
     required bool continuousScroll,
     required bool rightToLeft,
     required bool autoHideChrome,
+    required double zoomLevel,
     required bool fullscreen,
   }) async {
     final sharedPreferences = await SharedPreferences.getInstance();
@@ -220,6 +227,7 @@ class SettingsStorageService {
     );
     await sharedPreferences.setBool(_readerRightToLeftKey, rightToLeft);
     await sharedPreferences.setBool(_readerAutoHideChromeKey, autoHideChrome);
+    await sharedPreferences.setDouble(_readerZoomLevelKey, zoomLevel);
     await sharedPreferences.setBool(_readerFullscreenKey, fullscreen);
   }
 
@@ -255,6 +263,7 @@ class SettingsStorageService {
       sharedPreferences.remove(_readerContinuousScrollKey),
       sharedPreferences.remove(_readerRightToLeftKey),
       sharedPreferences.remove(_readerAutoHideChromeKey),
+      sharedPreferences.remove(_readerZoomLevelKey),
       sharedPreferences.remove(_readerFullscreenKey),
       sharedPreferences.remove(_onDeckEntriesKey),
       sharedPreferences.remove(_useLocalOnDeckFallbackKey),

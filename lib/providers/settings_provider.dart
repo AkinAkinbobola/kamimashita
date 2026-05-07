@@ -123,6 +123,9 @@ class SettingsModel extends ChangeNotifier {
   /// Whether reader chrome should auto-hide.
   bool readerAutoHideChrome = true;
 
+  /// Persisted reader zoom level.
+  double readerZoomLevel = 1.0;
+
   /// Whether the reader should launch in fullscreen.
   bool readerFullscreen = false;
 
@@ -159,6 +162,7 @@ class SettingsModel extends ChangeNotifier {
       readerContinuousScroll = data.readerContinuousScroll;
       readerRightToLeft = data.readerRightToLeft;
       readerAutoHideChrome = data.readerAutoHideChrome;
+      readerZoomLevel = data.readerZoomLevel;
       readerFullscreen = data.readerFullscreen;
       onDeckEntries = data.onDeckEntries;
       useLocalOnDeckFallback = data.useLocalOnDeckFallback;
@@ -258,6 +262,7 @@ class SettingsModel extends ChangeNotifier {
     bool? continuousScroll,
     bool? rightToLeft,
     bool? autoHideChrome,
+    double? zoomLevel,
     bool? fullscreen,
   }) async {
     if (fitMode != null) {
@@ -272,6 +277,9 @@ class SettingsModel extends ChangeNotifier {
     if (autoHideChrome != null) {
       readerAutoHideChrome = autoHideChrome;
     }
+    if (zoomLevel != null) {
+      readerZoomLevel = zoomLevel;
+    }
     if (fullscreen != null) {
       readerFullscreen = fullscreen;
     }
@@ -283,6 +291,7 @@ class SettingsModel extends ChangeNotifier {
         continuousScroll: readerContinuousScroll,
         rightToLeft: readerRightToLeft,
         autoHideChrome: readerAutoHideChrome,
+        zoomLevel: readerZoomLevel,
         fullscreen: readerFullscreen,
       );
     } catch (_) {
@@ -385,6 +394,7 @@ class SettingsModel extends ChangeNotifier {
     readerContinuousScroll = false;
     readerRightToLeft = false;
     readerAutoHideChrome = true;
+    readerZoomLevel = 1.0;
     readerFullscreen = false;
     onDeckEntries = const [];
     useLocalOnDeckFallback = false;
