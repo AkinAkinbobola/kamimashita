@@ -2889,90 +2889,86 @@ class _FiltersMenuButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return IntrinsicWidth(
-      child: MenuAnchor(
-        style: const MenuStyle(
-          backgroundColor: WidgetStatePropertyAll(Color(0xFF1E1E1E)),
-          surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
-          shadowColor: WidgetStatePropertyAll(Colors.black54),
-          elevation: WidgetStatePropertyAll(10),
-          padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 6)),
-          shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(
-              borderRadius: BorderRadius.zero,
-              side: BorderSide(color: AppTheme.border, width: 0.5),
-            ),
+    return MenuAnchor(
+      style: const MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(Color(0xFF1E1E1E)),
+        surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+        shadowColor: WidgetStatePropertyAll(Colors.black54),
+        elevation: WidgetStatePropertyAll(10),
+        padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 6)),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.zero,
+            side: BorderSide(color: AppTheme.border, width: 0.5),
           ),
         ),
-        menuChildren: [
-          _FilterCheckboxMenuRow(
-            label: AppStrings.filterNewOnly,
-            value: newOnly,
-            onChanged: (_) => onToggleNewOnly(),
-          ),
-          _FilterCheckboxMenuRow(
-            label: AppStrings.filterUntagged,
-            value: untaggedOnly,
-            onChanged: (_) => onToggleUntagged(),
-          ),
-          _FilterCheckboxMenuRow(
-            label: AppStrings.filterHideCompleted,
-            value: hideCompleted,
-            onChanged: (_) => onToggleHideCompleted(),
-          ),
-        ],
-        builder: (context, controller, child) {
-          return MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () {
-                if (controller.isOpen) {
-                  controller.close();
-                } else {
-                  controller.open();
-                }
-              },
-              behavior: HitTestBehavior.opaque,
-              child: DecoratedBox(
-                decoration: const BoxDecoration(
-                  color: AppTheme.surface,
-                  border: Border.fromBorderSide(
-                    BorderSide(color: AppTheme.border, width: 0.5),
-                  ),
+      ),
+      menuChildren: [
+        _FilterCheckboxMenuRow(
+          label: AppStrings.filterNewOnly,
+          value: newOnly,
+          onChanged: (_) => onToggleNewOnly(),
+        ),
+        _FilterCheckboxMenuRow(
+          label: AppStrings.filterUntagged,
+          value: untaggedOnly,
+          onChanged: (_) => onToggleUntagged(),
+        ),
+        _FilterCheckboxMenuRow(
+          label: AppStrings.filterHideCompleted,
+          value: hideCompleted,
+          onChanged: (_) => onToggleHideCompleted(),
+        ),
+      ],
+      builder: (context, controller, child) {
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: () {
+              if (controller.isOpen) {
+                controller.close();
+              } else {
+                controller.open();
+              }
+            },
+            behavior: HitTestBehavior.opaque,
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                color: AppTheme.surface,
+                border: Border.fromBorderSide(
+                  BorderSide(color: AppTheme.border, width: 0.5),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 8,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.max,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          AppStrings.filters,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: false,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: AppTheme.textPrimary,
-                          ),
-                        ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 8,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      AppStrings.filters,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      softWrap: false,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: AppTheme.textPrimary,
                       ),
-                      const SizedBox(width: 4),
-                      const Icon(
-                        Icons.expand_more,
-                        size: 14,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.expand_more,
+                      size: 14,
+                      color: AppTheme.textSecondary,
+                    ),
+                  ],
                 ),
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -3092,11 +3088,19 @@ class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
       items: const [
         PopupMenuItem<_CategoryContextAction>(
           value: _CategoryContextAction.edit,
-          child: Text(AppStrings.edit),
+          mouseCursor: SystemMouseCursors.click,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: Text(AppStrings.edit),
+          ),
         ),
         PopupMenuItem<_CategoryContextAction>(
           value: _CategoryContextAction.delete,
-          child: Text(AppStrings.delete),
+          mouseCursor: SystemMouseCursors.click,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: Text(AppStrings.delete),
+          ),
         ),
       ],
     );
@@ -3170,7 +3174,7 @@ class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
                         );
                         await _showContextMenu(topRight);
                       },
-                      tooltip: 'Category actions',
+                      mouseCursor: SystemMouseCursors.click,
                       padding: EdgeInsets.zero,
                       visualDensity: VisualDensity.compact,
                       constraints: const BoxConstraints(
@@ -3285,7 +3289,7 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
 
   Widget _buildSectionLabel(BuildContext context, String label) {
     return Text(
-      label.toUpperCase(),
+      label.replaceAll('_', ' ').toUpperCase(),
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
         color: const Color(0xFF666666),
         fontSize: 10,
@@ -3331,57 +3335,56 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
               Expanded(
                 child: archive == null
                     ? const SizedBox.shrink()
-                    : SelectionArea(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              AspectRatio(
-                                aspectRatio: 2 / 3,
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: ArchiveThumbnail(
-                                    archive: archive!,
-                                    fit: BoxFit.cover,
-                                  ),
+                    : SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            AspectRatio(
+                              aspectRatio: 2 / 3,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: ArchiveThumbnail(
+                                  archive: archive!,
+                                  fit: BoxFit.cover,
                                 ),
                               ),
-                              const SizedBox(height: 16),
-                              Text(
-                                archive!.title,
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(color: AppTheme.textPrimary),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                archive!.pageCount == null
-                                    ? 'Unknown page count'
-                                    : '${archive!.pageCount} pages',
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(color: AppTheme.textSecondary),
-                              ),
-                              const SizedBox(height: 10),
-                              _ArchiveRatingRow(
-                                currentRating: currentRating,
-                                isUpdating: isUpdatingRating,
-                                onSelected: onRatingSelected,
-                              ),
-                              const SizedBox(height: 16),
-                              _buildSectionLabel(
-                                context,
-                                AppStrings.categoriesTitle,
-                              ),
-                              const SizedBox(height: 6),
-                              if (isLoadingCategories)
-                                const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              else ...[
+                            ),
+                            const SizedBox(height: 16),
+                            SelectableText(
+                              archive!.title,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(color: AppTheme.textPrimary),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              archive!.pageCount == null
+                                  ? 'Unknown page count'
+                                  : '${archive!.pageCount} pages',
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(color: AppTheme.textSecondary),
+                            ),
+                            const SizedBox(height: 10),
+                            _ArchiveRatingRow(
+                              currentRating: currentRating,
+                              isUpdating: isUpdatingRating,
+                              onSelected: onRatingSelected,
+                            ),
+                            const SizedBox(height: 16),
+                            _buildSectionLabel(
+                              context,
+                              AppStrings.categoriesTitle,
+                            ),
+                            const SizedBox(height: 6),
+                            if (isLoadingCategories)
+                              const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            else ...[
                                 if (categories.isEmpty)
                                   Text(
                                     'Not in any categories.',
@@ -3476,91 +3479,90 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
                                   ),
                                 ],
                               ],
-                              if (archive!.sourceUrl != null &&
-                                  archive!.sourceUrl!.trim().isNotEmpty) ...[
-                                const SizedBox(height: 16),
-                                _buildSectionLabel(context, 'Source'),
-                                const SizedBox(height: 6),
-                                MouseRegion(
-                                  cursor: SystemMouseCursors.click,
-                                  child: GestureDetector(
-                                    onTap: () => _openSourceUrl(
-                                      archive!.sourceUrl!.trim(),
-                                    ),
-                                    behavior: HitTestBehavior.opaque,
-                                    child: Text(
-                                      archive!.sourceUrl!.trim(),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium
-                                          ?.copyWith(
-                                            color: AppTheme.crimson,
-                                            decoration:
-                                                TextDecoration.underline,
-                                            decorationColor: AppTheme.crimson,
-                                          ),
-                                    ),
+                            if (archive!.sourceUrl != null &&
+                                archive!.sourceUrl!.trim().isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              _buildSectionLabel(context, 'Source'),
+                              const SizedBox(height: 6),
+                              MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: GestureDetector(
+                                  onTap: () => _openSourceUrl(
+                                    archive!.sourceUrl!.trim(),
+                                  ),
+                                  behavior: HitTestBehavior.opaque,
+                                  child: Text(
+                                    archive!.sourceUrl!.trim(),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: AppTheme.crimson,
+                                          decoration:
+                                              TextDecoration.underline,
+                                          decorationColor: AppTheme.crimson,
+                                        ),
                                   ),
                                 ),
-                              ],
-                              const SizedBox(height: 16),
-                              for (final namespace in groupedTags) ...[
-                                _buildSectionLabel(
-                                  context,
-                                  namespace.namespace,
-                                ),
-                                const SizedBox(height: 6),
-                                Wrap(
-                                  spacing: 6,
-                                  runSpacing: 6,
-                                  children: namespace.tags
-                                      .map(
-                                        (tag) => ActionChip(
-                                          onPressed: () => onTagSelected(tag),
-                                          mouseCursor: SystemMouseCursors.click,
-                                          label: Text(
-                                            _tagLabel(namespace.namespace, tag),
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              color: AppTheme.crimson,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 0,
-                                          ),
-                                          visualDensity: const VisualDensity(
-                                            horizontal: -2,
-                                            vertical: -3,
-                                          ),
-                                          materialTapTargetSize:
-                                              MaterialTapTargetSize.shrinkWrap,
-                                          backgroundColor: const Color(
-                                            0xFF2A2A2A,
-                                          ),
-                                          side: BorderSide.none,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            for (final namespace in groupedTags) ...[
+                              _buildSectionLabel(
+                                context,
+                                namespace.namespace,
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: namespace.tags
+                                    .map(
+                                      (tag) => ActionChip(
+                                        onPressed: () => onTagSelected(tag),
+                                        mouseCursor: SystemMouseCursors.click,
+                                        label: Text(
+                                          _tagLabel(namespace.namespace, tag),
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: AppTheme.crimson,
+                                            fontWeight: FontWeight.w500,
                                           ),
                                         ),
-                                      )
-                                      .toList(growable: false),
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                              if (groupedTags.isEmpty)
-                                Text(
-                                  'No tags available.',
-                                  style: Theme.of(context).textTheme.bodyMedium
-                                      ?.copyWith(color: AppTheme.textSecondary),
-                                ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 0,
+                                        ),
+                                        visualDensity: const VisualDensity(
+                                          horizontal: -2,
+                                          vertical: -3,
+                                        ),
+                                        materialTapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                        backgroundColor: const Color(
+                                          0xFF2A2A2A,
+                                        ),
+                                        side: BorderSide.none,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                        ),
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                              const SizedBox(height: 12),
                             ],
-                          ),
+                            if (groupedTags.isEmpty)
+                              Text(
+                                'No tags available.',
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(color: AppTheme.textSecondary),
+                              ),
+                          ],
                         ),
                       ),
               ),

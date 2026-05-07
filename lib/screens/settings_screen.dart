@@ -329,6 +329,7 @@ class _SettingsTopBar extends StatelessWidget {
               children: [
                 IconButton(
                   onPressed: onBackPressed,
+                  mouseCursor: SystemMouseCursors.click,
                   icon: const Icon(Icons.arrow_back_rounded),
                   tooltip: AppStrings.backTooltip,
                 ),
