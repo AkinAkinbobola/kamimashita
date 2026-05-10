@@ -96,6 +96,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   bool _pendingVisibilityUpdate = false;
   bool _didApplyStoredPreferences = false;
   bool _isExitingReader = false;
+  static const String _archiveRatingPrefix = 'rating:';
   DateTime? _lastPagedWheelPageTurnAt;
   double _zoomLevel = 1.0;
   int _pagedScrollResetToken = 0;
@@ -105,6 +106,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   List<GlobalKey> _pageKeys = const [];
   List<GlobalKey<_ReaderPageState>> _pagedPageStateKeys = const [];
   Map<String, ImageProvider<Object>> _pageImageProviders = {};
+  Archive? _readerArchive;
+  List<LanraragiCategory> _boundaryStaticCategories = const [];
+  Set<String> _boundaryArchiveCategoryIds = <String>{};
+  bool _isLoadingBoundaryActions = false;
+  bool _isUpdatingBoundaryRating = false;
+  bool _isUpdatingBoundaryCategory = false;
   double? _continuousAnimatedScrollTarget;
   bool _cursorVisible = true;
   _ArchiveBoundary? _armedArchiveBoundary;
@@ -112,6 +119,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   MouseCursor _activeCursor(MouseCursor normal) {
     return _cursorVisible ? normal : SystemMouseCursors.none;
+  }
+
+  Archive get _currentArchive => _readerArchive ?? widget.archive;
+
+  List<LanraragiCategory> get _boundaryAddableStaticCategories {
+    final archiveCategoryIds = _boundaryArchiveCategoryIds;
+    return _boundaryStaticCategories
+        .where((category) => !archiveCategoryIds.contains(category.id))
+        .toList(growable: false);
   }
 
   @override
@@ -297,6 +313,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     _pageImageProviders = imageProviders;
     _clearArchiveIsNew(client, archive);
     _recordOnDeckEntry(archive.title, initialPage + 1, pageUrls.length);
+    _readerArchive = archive;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_isActiveDocumentRequest(requestToken)) {
@@ -735,6 +752,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         _armedArchiveBoundary = null;
         _visibleArchiveBoundary = boundary;
       });
+      if (boundary == _ArchiveBoundary.end) {
+        unawaited(_loadBoundaryActions());
+      }
       return;
     }
 
@@ -756,7 +776,159 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   void _handleArchiveBoundaryBackToLibrary() {
     _clearArchiveBoundaryState();
-    _exitReader();
+    unawaited(_exitReader());
+  }
+
+  bool _isArchiveRatingTag(String tag) {
+    return tag.trim().toLowerCase().startsWith(_archiveRatingPrefix);
+  }
+
+  int? _archiveRatingFromTags(Iterable<String> tags) {
+    for (final rawTag in tags) {
+      final normalizedTag = rawTag.trim();
+      if (!_isArchiveRatingTag(normalizedTag)) {
+        continue;
+      }
+      final stars = '⭐'.allMatches(normalizedTag).length;
+      if (stars >= 1 && stars <= 5) {
+        return stars;
+      }
+    }
+    return null;
+  }
+
+  void _showBoundaryActionError(Object error) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error.toString().replaceFirst('LanraragiException: ', ''),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _loadBoundaryActions() async {
+    final client = ref.read(lanraragiClientProvider);
+    final archive = _currentArchive;
+    if (client == null || archive.id.isEmpty || _isLoadingBoundaryActions) {
+      return;
+    }
+
+    setState(() {
+      _isLoadingBoundaryActions = true;
+    });
+
+    try {
+      final results = await Future.wait<Object>([
+        client.getCategories(),
+        client.getArchiveCategories(archive.id),
+      ]);
+      if (!mounted || _currentArchive.id != archive.id) {
+        return;
+      }
+
+      final categories = results[0] as List<LanraragiCategory>;
+      final archiveCategories = results[1] as List<LanraragiCategory>;
+      setState(() {
+        _boundaryStaticCategories = categories
+            .where((category) => category.isStatic)
+            .toList(growable: false);
+        _boundaryArchiveCategoryIds = archiveCategories
+            .map((category) => category.id)
+            .where((id) => id.isNotEmpty)
+            .toSet();
+      });
+    } catch (error) {
+      _showBoundaryActionError(error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingBoundaryActions = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _updateBoundaryArchiveRating(int tappedRating) async {
+    final client = ref.read(lanraragiClientProvider);
+    final archive = _currentArchive;
+    if (client == null || archive.id.isEmpty || _isUpdatingBoundaryRating) {
+      return;
+    }
+
+    final currentRating = _archiveRatingFromTags(archive.parsedTags);
+    final nextRating = currentRating == tappedRating ? null : tappedRating;
+    final nextTags = archive.parsedTags
+        .where((tag) => !_isArchiveRatingTag(tag))
+        .toList(growable: true);
+    if (nextRating != null) {
+      nextTags.add('rating:${'⭐' * nextRating}');
+    }
+    final nextTagString = nextTags.join(', ');
+
+    setState(() {
+      _isUpdatingBoundaryRating = true;
+    });
+
+    try {
+      await client.updateArchiveMetadata(archive.id, tags: nextTagString);
+      if (!mounted || _currentArchive.id != archive.id) {
+        return;
+      }
+
+      setState(() {
+        _readerArchive = archive.copyWith(tags: nextTagString);
+      });
+    } catch (error) {
+      _showBoundaryActionError(error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingBoundaryRating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _addBoundaryArchiveToCategory(String categoryId) async {
+    final client = ref.read(lanraragiClientProvider);
+    final archive = _currentArchive;
+    if (client == null ||
+        archive.id.isEmpty ||
+        categoryId.isEmpty ||
+        _isUpdatingBoundaryCategory ||
+        _boundaryArchiveCategoryIds.contains(categoryId)) {
+      return;
+    }
+
+    setState(() {
+      _isUpdatingBoundaryCategory = true;
+    });
+
+    try {
+      await client.addArchiveToCategory(categoryId, archive.id);
+      if (!mounted || _currentArchive.id != archive.id) {
+        return;
+      }
+
+      setState(() {
+        _boundaryArchiveCategoryIds = <String>{
+          ..._boundaryArchiveCategoryIds,
+          categoryId,
+        };
+      });
+    } catch (error) {
+      _showBoundaryActionError(error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdatingBoundaryCategory = false;
+        });
+      }
+    }
   }
 
   void _setContinuousScroll(bool value) {
@@ -1782,13 +1954,29 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                       child: Padding(
                                         padding: const EdgeInsets.all(20),
                                         child: _ArchiveBoundaryCard(
-                                          archive: document.archive,
+                                          archive: _currentArchive,
                                           boundary:
                                               _visibleArchiveBoundary ??
                                               _ArchiveBoundary.end,
                                           mouseCursor: _activeCursor(
                                             SystemMouseCursors.click,
                                           ),
+                                          currentRating:
+                                            _archiveRatingFromTags(
+                                            _currentArchive.parsedTags,
+                                            ),
+                                          isUpdatingRating:
+                                            _isUpdatingBoundaryRating,
+                                          addableStaticCategories:
+                                            _boundaryAddableStaticCategories,
+                                          isLoadingCategories:
+                                            _isLoadingBoundaryActions,
+                                          isUpdatingCategory:
+                                            _isUpdatingBoundaryCategory,
+                                          onRatingSelected:
+                                            _updateBoundaryArchiveRating,
+                                          onAddToCategory:
+                                            _addBoundaryArchiveToCategory,
                                           onDismiss: _clearArchiveBoundaryState,
                                           onBackToLibrary:
                                               _handleArchiveBoundaryBackToLibrary,
@@ -1832,6 +2020,13 @@ class _ArchiveBoundaryCard extends StatelessWidget {
     required this.archive,
     required this.boundary,
     required this.mouseCursor,
+    required this.currentRating,
+    required this.isUpdatingRating,
+    required this.addableStaticCategories,
+    required this.isLoadingCategories,
+    required this.isUpdatingCategory,
+    required this.onRatingSelected,
+    required this.onAddToCategory,
     required this.onDismiss,
     required this.onBackToLibrary,
   });
@@ -1839,6 +2034,13 @@ class _ArchiveBoundaryCard extends StatelessWidget {
   final Archive archive;
   final _ArchiveBoundary boundary;
   final MouseCursor mouseCursor;
+  final int? currentRating;
+  final bool isUpdatingRating;
+  final List<LanraragiCategory> addableStaticCategories;
+  final bool isLoadingCategories;
+  final bool isUpdatingCategory;
+  final ValueChanged<int> onRatingSelected;
+  final ValueChanged<String> onAddToCategory;
   final VoidCallback onDismiss;
   final VoidCallback onBackToLibrary;
 
@@ -1913,6 +2115,22 @@ class _ArchiveBoundaryCard extends StatelessWidget {
                           color: Colors.white70,
                         ),
                       ),
+                      if (!isBeginning) ...[
+                        const SizedBox(height: 10),
+                        _ArchiveRatingRow(
+                          currentRating: currentRating,
+                          isUpdating: isUpdatingRating,
+                          onSelected: onRatingSelected,
+                        ),
+                        const SizedBox(height: 6),
+                        _BoundaryCategoryMenuButton(
+                          categories: addableStaticCategories,
+                          isLoading: isLoadingCategories,
+                          isUpdating: isUpdatingCategory,
+                          mouseCursor: mouseCursor,
+                          onSelected: onAddToCategory,
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       Wrap(
                         spacing: 10,
@@ -1936,6 +2154,176 @@ class _ArchiveBoundaryCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ArchiveRatingRow extends StatelessWidget {
+  const _ArchiveRatingRow({
+    required this.currentRating,
+    required this.isUpdating,
+    required this.onSelected,
+  });
+
+  final int? currentRating;
+  final bool isUpdating;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (index) {
+        final starValue = index + 1;
+        final isActive = currentRating != null && starValue <= currentRating!;
+        return IconButton(
+          onPressed: isUpdating ? null : () => onSelected(starValue),
+          tooltip: '$starValue star${starValue == 1 ? '' : 's'}',
+          visualDensity: VisualDensity.compact,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          mouseCursor: isUpdating
+              ? SystemMouseCursors.basic
+              : SystemMouseCursors.click,
+          icon: Icon(
+            Icons.star,
+            size: 18,
+            color: isActive ? const Color(0xFF49D7E8) : AppTheme.textMuted,
+          ),
+        );
+      }),
+    );
+  }
+}
+
+class _BoundaryCategoryMenuButton extends StatelessWidget {
+  const _BoundaryCategoryMenuButton({
+    required this.categories,
+    required this.isLoading,
+    required this.isUpdating,
+    required this.mouseCursor,
+    required this.onSelected,
+  });
+
+  final List<LanraragiCategory> categories;
+  final bool isLoading;
+  final bool isUpdating;
+  final MouseCursor mouseCursor;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDisabled = isLoading || isUpdating || categories.isEmpty;
+    final label = isLoading
+        ? 'Loading...'
+        : categories.isEmpty
+        ? 'No static categories'
+        : 'Add to category';
+
+    return SizedBox(
+      width: 172,
+      child: MenuAnchor(
+        style: const MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(Color(0xFF1E1E1E)),
+          surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: WidgetStatePropertyAll(Colors.black54),
+          elevation: WidgetStatePropertyAll(10),
+          padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.zero,
+              side: BorderSide(color: AppTheme.border, width: 0.5),
+            ),
+          ),
+        ),
+        menuChildren: categories
+            .map(
+              (category) => MenuItemButton(
+                onPressed: () => onSelected(category.id),
+                closeOnActivate: true,
+                style: const ButtonStyle(
+                  padding: WidgetStatePropertyAll(EdgeInsets.zero),
+                  mouseCursor: WidgetStatePropertyAll(
+                    SystemMouseCursors.click,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      category.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            )
+            .toList(growable: false),
+        builder: (context, controller, child) {
+          return MouseRegion(
+            cursor: isDisabled ? SystemMouseCursors.basic : mouseCursor,
+            child: GestureDetector(
+              onTap: isDisabled
+                  ? null
+                  : () {
+                      if (controller.isOpen) {
+                        controller.close();
+                      } else {
+                        controller.open();
+                      }
+                    },
+              behavior: HitTestBehavior.opaque,
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  color: AppTheme.surface,
+                  border: Border.fromBorderSide(
+                    BorderSide(color: AppTheme.border, width: 0.5),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: isDisabled
+                                ? AppTheme.textMuted
+                                : AppTheme.textPrimary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.expand_more,
+                        size: 14,
+                        color: isDisabled
+                            ? AppTheme.textMuted
+                            : AppTheme.textSecondary,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
