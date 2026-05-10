@@ -1516,6 +1516,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                                 tooltip: 'Minimize window',
                                                 icon: Icons.horizontal_rule_rounded,
                                                 onPressed: () async {
+                                                  if (_isFullscreen) {
+                                                    await windowManager
+                                                        .setFullScreen(false);
+                                                  }
                                                   await windowManager.minimize();
                                                 },
                                               ),
