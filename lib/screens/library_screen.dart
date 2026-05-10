@@ -42,11 +42,56 @@ class _LibraryRefreshSnapshot {
   final int? archiveCount;
 }
 
+class _LibraryHistoryEntry {
+  const _LibraryHistoryEntry({
+    required this.searchQuery,
+    required this.selectedCategoryId,
+    required this.sortField,
+    required this.sortOrder,
+    required this.newOnly,
+    required this.untagged,
+    required this.hideCompleted,
+  });
+
+  final String searchQuery;
+  final String? selectedCategoryId;
+  final String sortField;
+  final String sortOrder;
+  final bool newOnly;
+  final bool untagged;
+  final bool hideCompleted;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        other is _LibraryHistoryEntry &&
+            searchQuery == other.searchQuery &&
+            selectedCategoryId == other.selectedCategoryId &&
+            sortField == other.sortField &&
+            sortOrder == other.sortOrder &&
+            newOnly == other.newOnly &&
+            untagged == other.untagged &&
+            hideCompleted == other.hideCompleted;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    searchQuery,
+    selectedCategoryId,
+    sortField,
+    sortOrder,
+    newOnly,
+    untagged,
+    hideCompleted,
+  );
+}
+
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with WindowListener {
   static const _focusRevalidateDebounce = Duration(milliseconds: 500);
   static const _focusRevalidateCooldown = Duration(seconds: 30);
   static const String _archiveRatingPrefix = 'rating:';
+  static const int _libraryHistoryLimit = 20;
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final _controller = TextEditingController();
@@ -99,6 +144,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   DateTime? _lastSuccessfulFocusRevalidationAt;
   bool _didApplyPersistedLibraryFilters = false;
   bool _didRunInitialLibraryLoad = false;
+  final List<_LibraryHistoryEntry> _libraryHistory = <_LibraryHistoryEntry>[];
 
   bool get _isDetailsOpen => _selectedArchive != null;
 
@@ -112,6 +158,57 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   LibraryState get _libraryState => ref.read(libraryStateProvider);
+
+  _LibraryHistoryEntry get _currentLibraryHistoryEntry => _LibraryHistoryEntry(
+    searchQuery: _activeQuery,
+    selectedCategoryId: _selectedCategoryId,
+    sortField: _selectedSort.id,
+    sortOrder: _sortOrder,
+    newOnly: _newOnly,
+    untagged: _untaggedOnly,
+    hideCompleted: _hideCompleted,
+  );
+
+  void _pushLibraryHistoryIfNeeded(_LibraryHistoryEntry nextState) {
+    final currentState = _currentLibraryHistoryEntry;
+    if (currentState == nextState) {
+      return;
+    }
+
+    setState(() {
+      _libraryHistory.add(currentState);
+      if (_libraryHistory.length > _libraryHistoryLimit) {
+        _libraryHistory.removeAt(0);
+      }
+    });
+  }
+
+  void _restorePreviousLibraryState() {
+    if (_libraryHistory.isEmpty) {
+      return;
+    }
+
+    final previousState = _libraryHistory.removeLast();
+    _controller.value = TextEditingValue(
+      text: previousState.searchQuery,
+      selection: TextSelection.collapsed(
+        offset: previousState.searchQuery.length,
+      ),
+    );
+
+    setState(() {
+      _selectedCategoryId = previousState.selectedCategoryId;
+      _selectedSort = LibrarySortOption.fromId(previousState.sortField);
+      _sortOrder = previousState.sortOrder == 'desc' ? 'desc' : 'asc';
+      _newOnly = previousState.newOnly;
+      _untaggedOnly = previousState.untagged;
+      _hideCompleted = previousState.hideCompleted;
+      _suggestions = const [];
+      _highlightedSuggestionIndex = -1;
+    });
+
+    _reloadLibrary(query: previousState.searchQuery);
+  }
 
   void _handleLibraryStateChanged() {
     if (!mounted) {
@@ -299,6 +396,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (!_hasActiveLibraryFilters) {
       return;
     }
+
+    _pushLibraryHistoryIfNeeded(
+      _LibraryHistoryEntry(
+        searchQuery: _activeQuery,
+        selectedCategoryId: null,
+        sortField: LibrarySortOption.title.id,
+        sortOrder: 'asc',
+        newOnly: false,
+        untagged: false,
+        hideCompleted: false,
+      ),
+    );
 
     setState(() {
       _selectedCategoryId = null;
@@ -517,6 +626,17 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   void _search(String q) {
+    _pushLibraryHistoryIfNeeded(
+      _LibraryHistoryEntry(
+        searchQuery: q,
+        selectedCategoryId: _selectedCategoryId,
+        sortField: _selectedSort.id,
+        sortOrder: _sortOrder,
+        newOnly: _newOnly,
+        untagged: _untaggedOnly,
+        hideCompleted: _hideCompleted,
+      ),
+    );
     _reloadLibrary(query: q);
   }
 
@@ -1656,6 +1776,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       ),
     );
 
+    _pushLibraryHistoryIfNeeded(
+      _LibraryHistoryEntry(
+        searchQuery: nextText,
+        selectedCategoryId: _selectedCategoryId,
+        sortField: _selectedSort.id,
+        sortOrder: _sortOrder,
+        newOnly: _newOnly,
+        untagged: _untaggedOnly,
+        hideCompleted: _hideCompleted,
+      ),
+    );
+
     setState(() {
       _suggestions = const [];
       _highlightedSuggestionIndex = -1;
@@ -1666,6 +1798,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   void _applyTagFilter(String tag) {
     final formattedTag = _formatExactTagFilter(tag);
+
+    _pushLibraryHistoryIfNeeded(
+      _LibraryHistoryEntry(
+        searchQuery: formattedTag,
+        selectedCategoryId: _selectedCategoryId,
+        sortField: _selectedSort.id,
+        sortOrder: _sortOrder,
+        newOnly: _newOnly,
+        untagged: _untaggedOnly,
+        hideCompleted: _hideCompleted,
+      ),
+    );
 
     _controller.value = TextEditingValue(
       text: formattedTag,
@@ -1742,6 +1886,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (nextSort.id == _selectedSort.id) {
       return;
     }
+
+    _pushLibraryHistoryIfNeeded(
+      _LibraryHistoryEntry(
+        searchQuery: _activeQuery,
+        selectedCategoryId: _selectedCategoryId,
+        sortField: nextSort.id,
+        sortOrder: _sortOrder,
+        newOnly: _newOnly,
+        untagged: _untaggedOnly,
+        hideCompleted: _hideCompleted,
+      ),
+    );
+
     setState(() {
       _selectedSort = nextSort;
     });
@@ -1750,8 +1907,22 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   void _toggleSortOrder() {
+    final nextSortOrder = _sortOrder == 'asc' ? 'desc' : 'asc';
+
+    _pushLibraryHistoryIfNeeded(
+      _LibraryHistoryEntry(
+        searchQuery: _activeQuery,
+        selectedCategoryId: _selectedCategoryId,
+        sortField: _selectedSort.id,
+        sortOrder: nextSortOrder,
+        newOnly: _newOnly,
+        untagged: _untaggedOnly,
+        hideCompleted: _hideCompleted,
+      ),
+    );
+
     setState(() {
-      _sortOrder = _sortOrder == 'asc' ? 'desc' : 'asc';
+      _sortOrder = nextSortOrder;
     });
     _persistLibraryFilters();
     _reloadLibrary();
@@ -1762,6 +1933,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (nextValue == _selectedCategoryId) {
       return;
     }
+
+    _pushLibraryHistoryIfNeeded(
+      _LibraryHistoryEntry(
+        searchQuery: _activeQuery,
+        selectedCategoryId: nextValue,
+        sortField: _selectedSort.id,
+        sortOrder: _sortOrder,
+        newOnly: _newOnly,
+        untagged: _untaggedOnly,
+        hideCompleted: _hideCompleted,
+      ),
+    );
+
     setState(() {
       _selectedCategoryId = nextValue;
     });
@@ -1779,14 +1963,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   void _toggleFlagFilter({
     required bool currentValue,
-    required void Function(bool nextValue) apply,
-    VoidCallback? onEnabled,
+    required _LibraryHistoryEntry nextState,
+    required VoidCallback apply,
   }) {
-    final nextValue = !currentValue;
-    apply(nextValue);
-    if (nextValue) {
-      onEnabled?.call();
-    }
+    _pushLibraryHistoryIfNeeded(nextState);
+    apply();
     _persistLibraryFilters();
     _reloadLibrary();
   }
@@ -1888,6 +2069,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            if (_libraryHistory.isNotEmpty) ...[
+              _LibraryHistoryBackButton(onPressed: _restorePreviousLibraryState),
+              const SizedBox(width: 8),
+            ],
             _ToolbarMenuButton<String>(
               width: 150,
               label: _selectedSort.label,
@@ -1952,17 +2137,56 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               hideCompleted: _hideCompleted,
               onToggleNewOnly: () => _toggleFlagFilter(
                 currentValue: _newOnly,
-                apply: (value) => setState(() => _newOnly = value),
-                onEnabled: () => setState(() => _untaggedOnly = false),
+                nextState: _LibraryHistoryEntry(
+                  searchQuery: _activeQuery,
+                  selectedCategoryId: _selectedCategoryId,
+                  sortField: _selectedSort.id,
+                  sortOrder: _sortOrder,
+                  newOnly: !_newOnly,
+                  untagged: !_newOnly ? false : _untaggedOnly,
+                  hideCompleted: _hideCompleted,
+                ),
+                apply: () {
+                  setState(() {
+                    _newOnly = !_newOnly;
+                    if (_newOnly) {
+                      _untaggedOnly = false;
+                    }
+                  });
+                },
               ),
               onToggleUntagged: () => _toggleFlagFilter(
                 currentValue: _untaggedOnly,
-                apply: (value) => setState(() => _untaggedOnly = value),
-                onEnabled: () => setState(() => _newOnly = false),
+                nextState: _LibraryHistoryEntry(
+                  searchQuery: _activeQuery,
+                  selectedCategoryId: _selectedCategoryId,
+                  sortField: _selectedSort.id,
+                  sortOrder: _sortOrder,
+                  newOnly: !_untaggedOnly ? false : _newOnly,
+                  untagged: !_untaggedOnly,
+                  hideCompleted: _hideCompleted,
+                ),
+                apply: () {
+                  setState(() {
+                    _untaggedOnly = !_untaggedOnly;
+                    if (_untaggedOnly) {
+                      _newOnly = false;
+                    }
+                  });
+                },
               ),
               onToggleHideCompleted: () => _toggleFlagFilter(
                 currentValue: _hideCompleted,
-                apply: (value) => setState(() => _hideCompleted = value),
+                nextState: _LibraryHistoryEntry(
+                  searchQuery: _activeQuery,
+                  selectedCategoryId: _selectedCategoryId,
+                  sortField: _selectedSort.id,
+                  sortOrder: _sortOrder,
+                  newOnly: _newOnly,
+                  untagged: _untaggedOnly,
+                  hideCompleted: !_hideCompleted,
+                ),
+                apply: () => setState(() => _hideCompleted = !_hideCompleted),
               ),
             ),
             if (_hasActiveLibraryFilters) ...[
@@ -2193,6 +2417,17 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                       onSearchTap: _updateSuggestions,
                       onSearchSubmitted: _handleSearchSubmitted,
                       onClearSearch: () {
+                        _pushLibraryHistoryIfNeeded(
+                          _LibraryHistoryEntry(
+                            searchQuery: '',
+                            selectedCategoryId: _selectedCategoryId,
+                            sortField: _selectedSort.id,
+                            sortOrder: _sortOrder,
+                            newOnly: _newOnly,
+                            untagged: _untaggedOnly,
+                            hideCompleted: _hideCompleted,
+                          ),
+                        );
                         _controller.clear();
                         _reloadLibrary(query: '');
                       },
@@ -2305,6 +2540,40 @@ class _ResetFiltersButtonState extends State<_ResetFiltersButton> {
               fontWeight: FontWeight.w500,
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryHistoryBackButton extends StatefulWidget {
+  const _LibraryHistoryBackButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  State<_LibraryHistoryBackButton> createState() =>
+      _LibraryHistoryBackButtonState();
+}
+
+class _LibraryHistoryBackButtonState extends State<_LibraryHistoryBackButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _hovered ? AppTheme.textPrimary : AppTheme.textMuted;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: Icon(Icons.arrow_back, size: 18, color: color),
         ),
       ),
     );
