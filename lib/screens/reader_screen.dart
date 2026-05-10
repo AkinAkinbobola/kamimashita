@@ -95,6 +95,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
   bool _progressSyncUnsupportedNotified = false;
   bool _pendingVisibilityUpdate = false;
   bool _didApplyStoredPreferences = false;
+  bool _isExitingReader = false;
   DateTime? _lastPagedWheelPageTurnAt;
   double _zoomLevel = 1.0;
   int _pagedScrollResetToken = 0;
@@ -207,9 +208,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       }
     });
 
-    if (_supportsWindowFullscreen) {
-      unawaited(_applyStoredFullscreenPreference(settings.readerFullscreen));
-    }
   }
 
   ReaderFitMode _readerFitModeFromStorage(String value) {
@@ -223,19 +221,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
 
   double _clampZoomLevel(double value) {
     return value.clamp(0.3, 5.0);
-  }
-
-  Future<void> _applyStoredFullscreenPreference(bool preferred) async {
-    final current = await windowManager.isFullScreen();
-    if (current != preferred) {
-      await windowManager.setFullScreen(preferred);
-    }
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _isFullscreen = preferred;
-    });
   }
 
   Future<void> _loadFullscreenState() async {
@@ -1039,11 +1024,38 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     );
   }
 
-  void _exitReader() {
+  Future<void> _exitReader() async {
+    if (_isExitingReader) {
+      return;
+    }
+
+    _isExitingReader = true;
+    if (_supportsWindowFullscreen) {
+      await windowManager.setFullScreen(false);
+    }
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isFullscreen = false;
+      _isExitingReader = true;
+    });
+
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      return;
+    }
+
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
       navigator.pop();
+      return;
     }
+
+    setState(() {
+      _isExitingReader = false;
+    });
   }
 
   KeyEventResult _handleKeyEvent(KeyEvent event, _ReaderDocument document) {
@@ -1161,11 +1173,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
           _scheduleControlsHide();
           return KeyEventResult.handled;
         }
-        if (_isFullscreen) {
-          _toggleFullscreen();
-          return KeyEventResult.handled;
-        }
-        _exitReader();
+        unawaited(_exitReader());
         return KeyEventResult.handled;
       default:
         return KeyEventResult.ignored;
@@ -1177,11 +1185,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     final headers = SettingsModel.instance.authHeader();
     final theme = Theme.of(context);
 
-    return MouseRegion(
-      cursor: _activeCursor(SystemMouseCursors.basic),
-      onHover: _handleReaderHover,
-      child: SelectionContainer.disabled(
-        child: Scaffold(
+    return PopScope<void>(
+      canPop: _isExitingReader,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          return;
+        }
+        unawaited(_exitReader());
+      },
+      child: MouseRegion(
+        cursor: _activeCursor(SystemMouseCursors.basic),
+        onHover: _handleReaderHover,
+        child: SelectionContainer.disabled(
+          child: Scaffold(
           backgroundColor: Colors.black,
           body: FutureBuilder<_ReaderDocument>(
             future: _documentFuture,
@@ -1787,6 +1803,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                 ),
             );
             },
+          ),
           ),
         ),
       ),
