@@ -157,6 +157,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         _hideCompleted;
   }
 
+  bool get _isAtDefaultLibraryState {
+    return _activeQuery.isEmpty &&
+        !_hasActiveLibraryFilters &&
+        _libraryHistory.isEmpty;
+  }
+
   LibraryState get _libraryState => ref.read(libraryStateProvider);
 
   _LibraryHistoryEntry get _currentLibraryHistoryEntry => _LibraryHistoryEntry(
@@ -393,21 +399,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   void _resetLibraryFilters() {
-    if (!_hasActiveLibraryFilters) {
+    if (_isAtDefaultLibraryState) {
       return;
     }
 
-    _pushLibraryHistoryIfNeeded(
-      _LibraryHistoryEntry(
-        searchQuery: _activeQuery,
-        selectedCategoryId: null,
-        sortField: LibrarySortOption.title.id,
-        sortOrder: 'asc',
-        newOnly: false,
-        untagged: false,
-        hideCompleted: false,
-      ),
-    );
+    _controller.clear();
 
     setState(() {
       _selectedCategoryId = null;
@@ -416,10 +412,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _newOnly = false;
       _untaggedOnly = false;
       _hideCompleted = false;
+      _libraryHistory.clear();
+      _suggestions = const [];
+      _highlightedSuggestionIndex = -1;
     });
 
     unawaited(SettingsModel.instance.clearLibraryPreferences());
-    _reloadLibrary();
+    _reloadLibrary(query: '');
   }
 
   @override
@@ -2189,7 +2188,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                 apply: () => setState(() => _hideCompleted = !_hideCompleted),
               ),
             ),
-            if (_hasActiveLibraryFilters) ...[
+            if (!_isAtDefaultLibraryState) ...[
               const SizedBox(width: 8),
               _ResetFiltersButton(onPressed: _resetLibraryFilters),
             ],
