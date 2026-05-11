@@ -90,6 +90,9 @@ class SettingsModel extends ChangeNotifier {
   /// Current LANraragi API key.
   String apiKey = '';
 
+  /// Current LANraragi content folder path.
+  String contentFolderPath = '';
+
   /// Whether thumbnails should be cropped in the grid.
   bool cropThumbnails = false;
 
@@ -151,6 +154,7 @@ class SettingsModel extends ChangeNotifier {
       final data = await SettingsStorageService.instance.load();
       serverUrl = data.serverUrl;
       apiKey = data.apiKey;
+      contentFolderPath = data.contentFolderPath;
       cropThumbnails = data.cropThumbnails;
       librarySelectedCategoryId = data.librarySelectedCategoryId;
       librarySortId = data.librarySortId;
@@ -176,6 +180,7 @@ class SettingsModel extends ChangeNotifier {
   Future<void> update({
     String? serverUrl,
     String? apiKey,
+    String? contentFolderPath,
     bool? cropThumbnails,
   }) async {
     if (serverUrl != null) {
@@ -183,6 +188,9 @@ class SettingsModel extends ChangeNotifier {
     }
     if (apiKey != null) {
       this.apiKey = apiKey.trim();
+    }
+    if (contentFolderPath != null) {
+      this.contentFolderPath = contentFolderPath.trim();
     }
     if (cropThumbnails != null) {
       this.cropThumbnails = cropThumbnails;
@@ -192,6 +200,7 @@ class SettingsModel extends ChangeNotifier {
     await SettingsStorageService.instance.saveConnection(
       serverUrl: this.serverUrl,
       apiKey: this.apiKey,
+      contentFolderPath: this.contentFolderPath,
       cropThumbnails: this.cropThumbnails,
     );
   }

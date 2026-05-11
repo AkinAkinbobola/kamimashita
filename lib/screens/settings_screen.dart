@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -19,8 +20,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _urlController = TextEditingController();
   final _apiController = TextEditingController();
+  final _contentFolderController = TextEditingController();
   bool _isSaving = false;
   bool _isTesting = false;
+  bool _isPickingFolder = false;
   String? _statusText;
   bool _statusIsError = false;
 
@@ -30,13 +33,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final s = SettingsModel.instance;
     _urlController.text = s.serverUrl;
     _apiController.text = s.apiKey;
+    _contentFolderController.text = s.contentFolderPath;
   }
 
   @override
   void dispose() {
     _urlController.dispose();
     _apiController.dispose();
+    _contentFolderController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickContentFolder() async {
+    setState(() {
+      _isPickingFolder = true;
+    });
+
+    try {
+      final path = await FilePicker.getDirectoryPath(
+        dialogTitle: AppStrings.contentFolderLabel,
+        initialDirectory: _contentFolderController.text.trim().isEmpty
+            ? null
+            : _contentFolderController.text.trim(),
+      );
+      if (!mounted || path == null) {
+        return;
+      }
+      _contentFolderController.text = path;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPickingFolder = false;
+        });
+      }
+    }
   }
 
   Future<void> _save() async {
@@ -47,13 +77,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     final serverUrl = _urlController.text.trim();
     final apiKey = _apiController.text.trim();
+    final contentFolderPath = _contentFolderController.text.trim();
     setState(() {
       _isSaving = true;
       _statusText = null;
     });
 
     try {
-      await SettingsModel.instance.update(serverUrl: serverUrl, apiKey: apiKey);
+      await SettingsModel.instance.update(
+        serverUrl: serverUrl,
+        apiKey: apiKey,
+        contentFolderPath: contentFolderPath,
+      );
       if (mounted) {
         Navigator.of(context).pop();
       }
@@ -211,6 +246,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               hintText: AppStrings.apiKeyHint,
                             ),
                             obscureText: true,
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            AppStrings.contentFolderLabel,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _contentFolderController,
+                                  decoration: _fieldDecoration(
+                                    hintText: AppStrings.contentFolderHint,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              OutlinedButton.icon(
+                                onPressed:
+                                    (_isSaving || _isTesting || _isPickingFolder)
+                                        ? null
+                                        : _pickContentFolder,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(
+                                    color: Color(0xFF2A2E39),
+                                  ),
+                                  backgroundColor: const Color(0xFF1A1A1A),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.folder_open_rounded),
+                                label: Text(
+                                  _isPickingFolder
+                                      ? AppStrings.saving
+                                      : AppStrings.browseFolder,
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 18),
                           OutlinedButton(

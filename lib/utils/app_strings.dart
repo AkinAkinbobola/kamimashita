@@ -9,6 +9,9 @@ abstract final class AppStrings {
   static const serverUrlHint = 'https://lrr.example.local';
   static const apiKeyLabel = 'API Key';
   static const apiKeyHint = 'Raw or base64-encoded API key';
+  static const contentFolderLabel = 'Content folder';
+  static const contentFolderHint = 'Select the LANraragi content folder';
+  static const browseFolder = 'Browse';
   static const backTooltip = 'Back';
   static const cancel = 'Cancel';
   static const save = 'Save';

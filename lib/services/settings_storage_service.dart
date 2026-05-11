@@ -11,6 +11,7 @@ class StoredSettingsData {
   const StoredSettingsData({
     required this.serverUrl,
     required this.apiKey,
+    required this.contentFolderPath,
     required this.cropThumbnails,
     required this.librarySelectedCategoryId,
     required this.librarySortId,
@@ -33,6 +34,9 @@ class StoredSettingsData {
 
   /// Persisted LANraragi API key loaded from secure storage.
   final String apiKey;
+
+  /// Persisted LANraragi content folder path.
+  final String contentFolderPath;
 
   /// Whether thumbnails should be cropped in grids.
   final bool cropThumbnails;
@@ -91,6 +95,7 @@ class SettingsStorageService {
   static const _serverUrlKey = 'prefs_server_url';
   static const _legacyApiKeyKey = 'prefs_api_key';
   static const _secureApiKeyKey = 'secure_api_key';
+  static const _contentFolderPathKey = 'contentFolderPath';
   static const _cropThumbnailsKey = 'prefs_crop_thumbnails';
   static const _librarySelectedCategoryIdKey =
       'prefs_library_selected_category_id';
@@ -123,6 +128,8 @@ class SettingsStorageService {
     return StoredSettingsData(
       serverUrl: serverUrl,
       apiKey: apiKey,
+      contentFolderPath:
+          (sharedPreferences.getString(_contentFolderPathKey) ?? '').trim(),
       cropThumbnails: sharedPreferences.getBool(_cropThumbnailsKey) ?? false,
       librarySelectedCategoryId:
           (sharedPreferences.getString(_librarySelectedCategoryIdKey) ?? '')
@@ -161,6 +168,7 @@ class SettingsStorageService {
   Future<void> saveConnection({
     required String serverUrl,
     required String apiKey,
+    required String contentFolderPath,
     required bool cropThumbnails,
   }) async {
     final sharedPreferences = await SharedPreferences.getInstance();
@@ -169,6 +177,10 @@ class SettingsStorageService {
       _normalizeServerUrl(serverUrl),
     );
     await sharedPreferences.setBool(_cropThumbnailsKey, cropThumbnails);
+    await sharedPreferences.setString(
+      _contentFolderPathKey,
+      contentFolderPath.trim(),
+    );
     await _secureStorage.write(key: _secureApiKeyKey, value: apiKey.trim());
     await sharedPreferences.remove(_legacyApiKeyKey);
   }
@@ -252,6 +264,7 @@ class SettingsStorageService {
     await Future.wait([
       sharedPreferences.remove(_serverUrlKey),
       sharedPreferences.remove(_legacyApiKeyKey),
+      sharedPreferences.remove(_contentFolderPathKey),
       sharedPreferences.remove(_cropThumbnailsKey),
       sharedPreferences.remove(_librarySelectedCategoryIdKey),
       sharedPreferences.remove(_librarySortIdKey),
