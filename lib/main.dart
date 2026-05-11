@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -70,6 +71,14 @@ Future<void> _startKamaDlIfConfigured() async {
     '--output',
     contentFolderPath,
   ]);
+  _kamaDlProcess!.stdout.transform(utf8.decoder).listen((data) {
+    // ignore: avoid_print
+    print('[kami-dl] $data');
+  });
+  _kamaDlProcess!.stderr.transform(utf8.decoder).listen((data) {
+    // ignore: avoid_print
+    print('[kami-dl ERROR] $data');
+  });
   _kamaDlProcess!.exitCode.whenComplete(() {
     _kamaDlProcess = null;
   });
@@ -100,6 +109,7 @@ Future<void> _stopKamaDlIfRunning() async {
   }
 
   process.kill();
+  unawaited(Process.run('taskkill', ['/F', '/IM', 'kami-dl.exe']));
   _kamaDlProcess = null;
 }
 

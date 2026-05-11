@@ -64,13 +64,12 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
+	cancelRuntime()
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), time.Second)
 	defer cancelShutdown()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("server shutdown error: %v", err)
 	}
-	cancelRuntime()
-	manager.Stop()
 }
 
 func removeTempCBZ(root string) error {
