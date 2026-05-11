@@ -164,6 +164,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   bool _isQueueSubmitting = false;
   bool _isStartActionInFlight = false;
   bool _isPauseActionInFlight = false;
+  bool _isClearFinishedActionInFlight = false;
   bool _isLoadingDownloadStatus = false;
   bool _isDownloaderReachable = true;
   List<_DownloadQueueJob> _downloadJobs = const <_DownloadQueueJob>[];
@@ -504,9 +505,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       ]);
       final jobsPayload = (responses[0] as Response<Object>).data;
       final statusPayload = (responses[1] as Response<Object>).data;
-      final jobs = _decodeJsonList(jobsPayload)
-          .map(_DownloadQueueJob.fromJson)
-          .toList(growable: false);
+      final jobs = _decodeJsonList(
+        jobsPayload,
+      ).map(_DownloadQueueJob.fromJson).toList(growable: false);
       final activeProgress = _DownloadActiveProgress.fromStatusJson(
         _decodeJsonMap(statusPayload),
       );
@@ -543,7 +544,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     });
 
     try {
-      await _downloaderDio.post<Object>('/queue', data: <String, Object>{'ids': ids});
+      await _downloaderDio.post<Object>(
+        '/queue',
+        data: <String, Object>{'ids': ids},
+      );
       _downloadInputController.clear();
       await _refreshDownloadStatus();
     } catch (error) {
@@ -613,6 +617,34 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       if (mounted) {
         setState(() {
           _isPauseActionInFlight = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _clearFinishedDownloadJobs() async {
+    if (_isClearFinishedActionInFlight) {
+      return;
+    }
+
+    setState(() {
+      _isClearFinishedActionInFlight = true;
+    });
+
+    try {
+      await _downloaderDio.delete<Object>('/jobs');
+      await _refreshDownloadStatus();
+    } catch (error) {
+      if (mounted) {
+        _showStatusSnackBar(
+          error.toString().replaceFirst('DioException: ', ''),
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isClearFinishedActionInFlight = false;
         });
       }
     }
@@ -2263,7 +2295,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             if (_libraryHistory.isNotEmpty) ...[
-              _LibraryHistoryBackButton(onPressed: _restorePreviousLibraryState),
+              _LibraryHistoryBackButton(
+                onPressed: _restorePreviousLibraryState,
+              ),
               const SizedBox(width: 8),
             ],
             _ToolbarMenuButton<String>(
@@ -2667,8 +2701,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                                 _isLoadingSelectedArchiveCategories,
                             isUpdatingCategories:
                                 _isUpdatingSelectedArchiveCategories,
-                            isUpdatingRating:
-                                _isUpdatingSelectedArchiveRating,
+                            isUpdatingRating: _isUpdatingSelectedArchiveRating,
                             isDeletingArchive: _isDeletingSelectedArchive,
                             currentRating: _selectedArchive == null
                                 ? null
@@ -2723,10 +2756,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                         isAdding: _isQueueSubmitting,
                         isStarting: _isStartActionInFlight,
                         isPausing: _isPauseActionInFlight,
+                        isClearingFinished: _isClearFinishedActionInFlight,
                         onClose: _closeDownloadPanel,
                         onAdd: _addDownloadJobs,
                         onStart: _startDownloadQueue,
                         onPause: _pauseDownloadQueue,
+                        onClearFinished: _clearFinishedDownloadJobs,
                       ),
                     ),
                   ),
@@ -2761,12 +2796,18 @@ Map<String, dynamic> _decodeJsonMap(Object? data) {
 
 List<Map<String, dynamic>> _decodeJsonList(Object? data) {
   if (data is List) {
-    return data.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList(growable: false);
+    return data
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
   }
   if (data is String) {
     final decoded = jsonDecode(data);
     if (decoded is List) {
-      return decoded.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList(growable: false);
+      return decoded
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
     }
   }
   return const <Map<String, dynamic>>[];
@@ -2842,6 +2883,14 @@ class _DownloadQueueJob {
 
   String get normalizedStatus => status.trim().toLowerCase();
 
+  bool get isAlreadyOwned =>
+      normalizedStatus == 'duplicate' || normalizedStatus == 'already owned';
+
+  bool get isClearable =>
+      normalizedStatus == 'done' ||
+      normalizedStatus == 'failed' ||
+      isAlreadyOwned;
+
   factory _DownloadQueueJob.fromJson(Map<String, dynamic> json) {
     final rawPercentage = json['percentage'];
     double? progress;
@@ -2872,6 +2921,20 @@ class _DownloadQueueJob {
       title: title ?? this.title,
       status: status ?? this.status,
       progress: progress ?? this.progress,
+    );
+  }
+
+  _DownloadQueueJob mergedWith(_DownloadActiveProgress? activeProgress) {
+    if (activeProgress == null ||
+        activeProgress.id.isEmpty ||
+        activeProgress.id != id) {
+      return this;
+    }
+
+    return copyWith(
+      title: activeProgress.title.isEmpty ? title : activeProgress.title,
+      status: activeProgress.status.isEmpty ? status : activeProgress.status,
+      progress: activeProgress.progress,
     );
   }
 }
@@ -3472,12 +3535,15 @@ class _CategoryFilterMenu extends StatelessWidget {
     final fixedHeight =
         36.0 +
         (staticCategories.isNotEmpty ? 22.0 + staticSectionHeight : 0.0) +
-        (staticCategories.isNotEmpty && dynamicCategories.isNotEmpty ? 9.0 : 0.0) +
+        (staticCategories.isNotEmpty && dynamicCategories.isNotEmpty
+            ? 9.0
+            : 0.0) +
         (dynamicCategories.isNotEmpty ? 22.0 : 0.0) +
         9.0 +
         36.0;
-    final dynamicSectionMaxHeight =
-        maxMenuHeight > fixedHeight ? maxMenuHeight - fixedHeight : 0.0;
+    final dynamicSectionMaxHeight = maxMenuHeight > fixedHeight
+        ? maxMenuHeight - fixedHeight
+        : 0.0;
 
     return SizedBox(
       width: width,
@@ -3512,26 +3578,26 @@ class _CategoryFilterMenu extends StatelessWidget {
               child: _CategoryMenuSectionHeader(label: 'STATIC'),
             ),
             ...staticCategories.map(
-            (category) => _CategoryFilterMenuItem(
-              width: width,
-              label: category.name,
-              selected: selectedCategoryId == category.id,
-              leadingIcon: Icons.folder_outlined,
-              onSelect: () {
-                controller.close();
-                onSelected(category.id);
-              },
-              onActionSelected: (action) {
-                controller.close();
-                switch (action) {
-                  case _CategoryContextAction.edit:
-                    onEditCategory(category);
-                  case _CategoryContextAction.delete:
-                    onDeleteCategory(category);
-                }
-              },
+              (category) => _CategoryFilterMenuItem(
+                width: width,
+                label: category.name,
+                selected: selectedCategoryId == category.id,
+                leadingIcon: Icons.folder_outlined,
+                onSelect: () {
+                  controller.close();
+                  onSelected(category.id);
+                },
+                onActionSelected: (action) {
+                  controller.close();
+                  switch (action) {
+                    case _CategoryContextAction.edit:
+                      onEditCategory(category);
+                    case _CategoryContextAction.delete:
+                      onDeleteCategory(category);
+                  }
+                },
+              ),
             ),
-          ),
           ],
           if (staticCategories.isNotEmpty && dynamicCategories.isNotEmpty)
             const Padding(
@@ -3718,10 +3784,7 @@ class _FiltersMenuButton extends StatelessWidget {
                 ),
               ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 6,
-                  vertical: 8,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -3893,7 +3956,8 @@ class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
   Widget build(BuildContext context) {
     final highlightColor =
         widget.highlightColor ?? AppTheme.crimson.withValues(alpha: 0.14);
-    final foregroundColor = widget.textColor ??
+    final foregroundColor =
+        widget.textColor ??
         (widget.selected ? const Color(0xFF49D7E8) : AppTheme.textPrimary);
 
     return MouseRegion(
@@ -3929,15 +3993,20 @@ class _CategoryFilterMenuItemState extends State<_CategoryFilterMenuItem> {
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: foregroundColor,
-                        fontWeight:
-                            widget.selected ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: widget.selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                       ),
                     ),
                   ),
                   if (widget.selected)
                     const Padding(
                       padding: EdgeInsets.only(right: 6),
-                      child: Icon(Icons.done, size: 14, color: Color(0xFF49D7E8)),
+                      child: Icon(
+                        Icons.done,
+                        size: 14,
+                        color: Color(0xFF49D7E8),
+                      ),
                     ),
                   if (widget.onActionSelected != null)
                     IconButton(
@@ -4163,100 +4232,97 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
                                 ),
                               )
                             else ...[
-                                if (categories.isEmpty)
-                                  Text(
-                                    'Not in any categories.',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                          color: AppTheme.textSecondary,
-                                        ),
-                                  )
-                                else
-                                  Wrap(
-                                    spacing: 6,
-                                    runSpacing: 6,
-                                    children: categories
-                                        .map(
-                                          (category) => InputChip(
-                                            label: Text(category.name),
-                                            onDeleted: isUpdatingCategories
-                                                ? null
-                                                : () => onRemoveFromCategory(
-                                                    category.id,
-                                                  ),
-                                            deleteIconColor:
-                                                AppTheme.textSecondary,
-                                            backgroundColor: const Color(
-                                              0xFF2A2A2A,
-                                            ),
-                                            labelStyle: const TextStyle(
-                                              fontSize: 11,
-                                              color: AppTheme.textPrimary,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                            side: BorderSide.none,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(999),
+                              if (categories.isEmpty)
+                                Text(
+                                  'Not in any categories.',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(color: AppTheme.textSecondary),
+                                )
+                              else
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: categories
+                                      .map(
+                                        (category) => InputChip(
+                                          label: Text(category.name),
+                                          onDeleted: isUpdatingCategories
+                                              ? null
+                                              : () => onRemoveFromCategory(
+                                                  category.id,
+                                                ),
+                                          deleteIconColor:
+                                              AppTheme.textSecondary,
+                                          backgroundColor: const Color(
+                                            0xFF2A2A2A,
+                                          ),
+                                          labelStyle: const TextStyle(
+                                            fontSize: 11,
+                                            color: AppTheme.textPrimary,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          side: BorderSide.none,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              999,
                                             ),
                                           ),
-                                        )
-                                        .toList(growable: false),
-                                  ),
-                                const SizedBox(height: 8),
-                                DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF202020),
-                                    border: Border.all(
-                                      color: AppTheme.border,
-                                      width: 0.5,
-                                    ),
-                                  ),
-                                  child: LayoutBuilder(
-                                    builder: (context, constraints) {
-                                      return _ToolbarMenuButton<String>(
-                                        width: constraints.maxWidth,
-                                        label: _addableStaticCategories.isEmpty
-                                            ? AppStrings.noStaticCategories
-                                            : AppStrings.addToCategory,
-                                        items: _addableStaticCategories
-                                            .map(
-                                              (category) =>
-                                                  _ToolbarMenuOption<String>(
-                                                    value: category.id,
-                                                    label: category.name,
-                                                  ),
-                                            )
-                                            .toList(growable: false),
-                                        itemHoverColor: const Color(0xFF49D7E8),
-                                        onSelected:
-                                            isUpdatingCategories ||
-                                                _addableStaticCategories.isEmpty
-                                            ? (_) {}
-                                            : (categoryId) {
-                                                if (categoryId != null) {
-                                                  onAddToCategory(categoryId);
-                                                }
-                                              },
-                                      );
-                                    },
+                                        ),
+                                      )
+                                      .toList(growable: false),
+                                ),
+                              const SizedBox(height: 8),
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF202020),
+                                  border: Border.all(
+                                    color: AppTheme.border,
+                                    width: 0.5,
                                   ),
                                 ),
-                                if (categoryMessage != null) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    categoryMessage!,
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(
-                                          color: categoryMessageIsError
-                                              ? AppTheme.crimson
-                                              : AppTheme.textSecondary,
-                                        ),
-                                  ),
-                                ],
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    return _ToolbarMenuButton<String>(
+                                      width: constraints.maxWidth,
+                                      label: _addableStaticCategories.isEmpty
+                                          ? AppStrings.noStaticCategories
+                                          : AppStrings.addToCategory,
+                                      items: _addableStaticCategories
+                                          .map(
+                                            (category) =>
+                                                _ToolbarMenuOption<String>(
+                                                  value: category.id,
+                                                  label: category.name,
+                                                ),
+                                          )
+                                          .toList(growable: false),
+                                      itemHoverColor: const Color(0xFF49D7E8),
+                                      onSelected:
+                                          isUpdatingCategories ||
+                                              _addableStaticCategories.isEmpty
+                                          ? (_) {}
+                                          : (categoryId) {
+                                              if (categoryId != null) {
+                                                onAddToCategory(categoryId);
+                                              }
+                                            },
+                                    );
+                                  },
+                                ),
+                              ),
+                              if (categoryMessage != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  categoryMessage!,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: categoryMessageIsError
+                                            ? AppTheme.crimson
+                                            : AppTheme.textSecondary,
+                                      ),
+                                ),
                               ],
+                            ],
                             if (archive!.sourceUrl != null &&
                                 archive!.sourceUrl!.trim().isNotEmpty) ...[
                               const SizedBox(height: 16),
@@ -4278,8 +4344,7 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
                                         .bodyMedium
                                         ?.copyWith(
                                           color: AppTheme.crimson,
-                                          decoration:
-                                              TextDecoration.underline,
+                                          decoration: TextDecoration.underline,
                                           decorationColor: AppTheme.crimson,
                                         ),
                                   ),
@@ -4288,10 +4353,7 @@ class _ArchiveDetailsDrawer extends StatelessWidget {
                             ],
                             const SizedBox(height: 16),
                             for (final namespace in groupedTags) ...[
-                              _buildSectionLabel(
-                                context,
-                                namespace.namespace,
-                              ),
+                              _buildSectionLabel(context, namespace.namespace),
                               const SizedBox(height: 6),
                               Wrap(
                                 spacing: 6,
@@ -4426,7 +4488,7 @@ class _ArchiveRatingRow extends StatelessWidget {
   }
 }
 
-class _DownloadPanel extends StatelessWidget {
+class _DownloadPanel extends StatefulWidget {
   const _DownloadPanel({
     required this.inputController,
     required this.jobs,
@@ -4436,10 +4498,12 @@ class _DownloadPanel extends StatelessWidget {
     required this.isAdding,
     required this.isStarting,
     required this.isPausing,
+    required this.isClearingFinished,
     required this.onClose,
     required this.onAdd,
     required this.onStart,
     required this.onPause,
+    required this.onClearFinished,
   });
 
   final TextEditingController inputController;
@@ -4450,22 +4514,40 @@ class _DownloadPanel extends StatelessWidget {
   final bool isAdding;
   final bool isStarting;
   final bool isPausing;
+  final bool isClearingFinished;
   final VoidCallback onClose;
   final VoidCallback onAdd;
   final VoidCallback onStart;
   final VoidCallback onPause;
+  final VoidCallback onClearFinished;
+
+  @override
+  State<_DownloadPanel> createState() => _DownloadPanelState();
+}
+
+class _DownloadPanelState extends State<_DownloadPanel> {
+  bool _showAlreadyOwned = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final activeProgress = widget.activeProgress;
+    final jobs = widget.jobs
+        .map((job) => job.mergedWith(activeProgress))
+        .toList(growable: false);
+    final alreadyOwnedJobs = jobs
+        .where((job) => job.isAlreadyOwned)
+        .toList(growable: false);
+    final visibleJobs = jobs
+        .where((job) => !job.isAlreadyOwned)
+        .toList(growable: false);
+    final hasClearableJobs = jobs.any((job) => job.isClearable);
 
     return Material(
       color: AppTheme.surface,
       child: DecoratedBox(
         decoration: const BoxDecoration(
-          border: Border(
-            right: BorderSide(color: AppTheme.border, width: 0.5),
-          ),
+          border: Border(right: BorderSide(color: AppTheme.border, width: 0.5)),
           boxShadow: [
             BoxShadow(
               color: Colors.black54,
@@ -4488,11 +4570,25 @@ class _DownloadPanel extends StatelessWidget {
                       'Download',
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: AppTheme.textPrimary,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                     const Spacer(),
-                    _TopBarIconButton(icon: Icons.close, onPressed: onClose),
+                    if (hasClearableJobs) ...[
+                      _DownloadPanelHeaderTextButton(
+                        label: widget.isClearingFinished
+                            ? 'Clearing...'
+                            : 'Clear finished',
+                        onPressed: widget.isClearingFinished
+                            ? null
+                            : widget.onClearFinished,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    _TopBarIconButton(
+                      icon: Icons.close,
+                      onPressed: widget.onClose,
+                    ),
                   ],
                 ),
               ),
@@ -4501,40 +4597,30 @@ class _DownloadPanel extends StatelessWidget {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(minHeight: 80),
                   child: TextField(
-                    controller: inputController,
+                    controller: widget.inputController,
                     minLines: 4,
                     maxLines: null,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: AppTheme.textPrimary,
                     ),
                     decoration: InputDecoration(
-                      hintText:
-                          'Paste nhentai IDs separated by commas or new lines',
+                      hintText: 'Paste IDs or URLs, one per line',
                       hintStyle: theme.textTheme.bodySmall?.copyWith(
                         color: AppTheme.textMuted,
                       ),
                       filled: true,
-                      fillColor: const Color(0xFF18181B),
+                      fillColor: const Color(0xFF1A1A1A),
                       contentPadding: const EdgeInsets.all(12),
-                      border: const OutlineInputBorder(
-                        borderRadius: BorderRadius.zero,
-                        borderSide: BorderSide(
-                          color: AppTheme.border,
-                          width: 0.5,
-                        ),
+                      border: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.transparent),
                       ),
-                      enabledBorder: const OutlineInputBorder(
-                        borderRadius: BorderRadius.zero,
-                        borderSide: BorderSide(
-                          color: AppTheme.border,
-                          width: 0.5,
-                        ),
+                      enabledBorder: const UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.transparent),
                       ),
-                      focusedBorder: const OutlineInputBorder(
-                        borderRadius: BorderRadius.zero,
+                      focusedBorder: const UnderlineInputBorder(
                         borderSide: BorderSide(
                           color: Color(0xFF49D7E8),
-                          width: 0.8,
+                          width: 1,
                         ),
                       ),
                     ),
@@ -4546,9 +4632,8 @@ class _DownloadPanel extends StatelessWidget {
                 child: SizedBox(
                   width: double.infinity,
                   child: _DownloadPanelActionButton(
-                    label: isAdding ? 'Adding...' : 'Add',
-                    onPressed: isAdding ? null : onAdd,
-                    accent: false,
+                    label: widget.isAdding ? 'Adding...' : 'Add',
+                    onPressed: widget.isAdding ? null : widget.onAdd,
                   ),
                 ),
               ),
@@ -4558,7 +4643,7 @@ class _DownloadPanel extends StatelessWidget {
                   width: double.infinity,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 14),
-                    child: isLoading
+                    child: widget.isLoading
                         ? const Center(
                             child: SizedBox(
                               width: 20,
@@ -4566,64 +4651,66 @@ class _DownloadPanel extends StatelessWidget {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           )
-                        : !isReachable
-                            ? Center(
-                                child: Text(
-                                  'Downloader not running',
-                                  textAlign: TextAlign.center,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: AppTheme.textMuted,
-                                  ),
-                                ),
-                              )
-                            : jobs.isEmpty
-                                ? Center(
-                                    child: Text(
-                                      'No queued downloads',
-                                      textAlign: TextAlign.center,
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: AppTheme.textMuted,
-                                      ),
-                                    ),
-                                  )
-                                : _Scrollbarless(
-                                    child: ListView.separated(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 12,
-                                      ),
-                                      itemCount: jobs.length,
-                                      separatorBuilder: (context, index) =>
-                                          const Divider(
-                                        height: 16,
-                                        thickness: 0.5,
-                                        color: AppTheme.border,
-                                      ),
-                                      itemBuilder: (context, index) =>
-                                          _DownloadQueueJobTile(
-                                        job: jobs[index],
-                                        activeProgress: activeProgress,
-                                      ),
+                        : !widget.isReachable
+                        ? Center(
+                            child: Text(
+                              'Downloader not running',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: AppTheme.textMuted,
+                              ),
+                            ),
+                          )
+                        : jobs.isEmpty
+                        ? Center(
+                            child: Text(
+                              'No queued downloads',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: AppTheme.textMuted,
+                              ),
+                            ),
+                          )
+                        : _Scrollbarless(
+                            child: ListView(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              children: [
+                                for (final job in visibleJobs) ...[
+                                  _DownloadQueueJobTile(job: job),
+                                  const SizedBox(height: 8),
+                                ],
+                                if (alreadyOwnedJobs.isNotEmpty)
+                                  _AlreadyOwnedDownloadGroup(
+                                    jobs: alreadyOwnedJobs,
+                                    expanded: _showAlreadyOwned,
+                                    onToggle: () => setState(
+                                      () => _showAlreadyOwned =
+                                          !_showAlreadyOwned,
                                     ),
                                   ),
+                              ],
+                            ),
+                          ),
                   ),
                 ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                child: Row(
+                child: Column(
                   children: [
-                    Expanded(
+                    SizedBox(
+                      width: double.infinity,
                       child: _DownloadPanelActionButton(
-                        label: isStarting ? 'Starting...' : 'Start',
-                        onPressed: isStarting ? null : onStart,
-                        accent: true,
+                        label: widget.isStarting ? 'Starting...' : 'Start',
+                        onPressed: widget.isStarting ? null : widget.onStart,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
                       child: _DownloadPanelPlainActionButton(
-                        label: isPausing ? 'Pausing...' : 'Pause',
-                        onPressed: isPausing ? null : onPause,
+                        label: widget.isPausing ? 'Pausing...' : 'Pause',
+                        onPressed: widget.isPausing ? null : widget.onPause,
                       ),
                     ),
                   ],
@@ -4638,64 +4725,56 @@ class _DownloadPanel extends StatelessWidget {
 }
 
 class _DownloadQueueJobTile extends StatelessWidget {
-  const _DownloadQueueJobTile({required this.job, this.activeProgress});
+  const _DownloadQueueJobTile({required this.job});
 
   final _DownloadQueueJob job;
-  final _DownloadActiveProgress? activeProgress;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final mergedJob = _mergedJob();
-    final statusLabel = switch (mergedJob.normalizedStatus) {
+    final statusLabel = switch (job.normalizedStatus) {
       'done' => 'Done',
       'failed' => 'Failed',
       'duplicate' => 'Already owned',
+      'already owned' => 'Already owned',
       'pending' => 'Waiting',
       'downloading' => 'Downloading',
-      _ => mergedJob.status.trim().isEmpty ? 'Pending' : mergedJob.status,
+      _ => job.status.trim().isEmpty ? 'Waiting' : job.status,
     };
-    final statusColor = switch (mergedJob.normalizedStatus) {
-      'done' => const Color(0xFF63D471),
-      'failed' => const Color(0xFFE57373),
-      'duplicate' || 'pending' => AppTheme.textMuted,
+    final statusColor = switch (job.normalizedStatus) {
+      'done' => const Color(0xFF49D7E8),
+      'failed' => const Color(0xFFB56A72),
+      'duplicate' || 'already owned' || 'pending' => AppTheme.textMuted,
       'downloading' => const Color(0xFF49D7E8),
       _ => AppTheme.textSecondary,
     };
-    final trailing = switch (mergedJob.normalizedStatus) {
-      'done' => Icon(
-          Icons.check_circle_outline,
-          size: 16,
-          color: statusColor,
-        ),
-      'failed' => Icon(
-          Icons.close,
-          size: 16,
-          color: statusColor,
-        ),
+    final trailing = switch (job.normalizedStatus) {
+      'done' => Icon(Icons.check, size: 14, color: statusColor),
       _ => Text(
-          statusLabel,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: statusColor,
-            fontWeight: FontWeight.w500,
-          ),
+        statusLabel,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: statusColor,
+          fontWeight: FontWeight.w500,
         ),
+      ),
     };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               child: Text(
-                mergedJob.displayTitle,
-                maxLines: 2,
+                job.displayTitle,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: AppTheme.textPrimary,
-                  fontWeight: FontWeight.w600,
+                  color: job.title.trim().isEmpty
+                      ? AppTheme.textMuted
+                      : AppTheme.textPrimary,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
@@ -4703,42 +4782,125 @@ class _DownloadQueueJobTile extends StatelessWidget {
             trailing,
           ],
         ),
-        if (mergedJob.isDownloading) ...[
-          const SizedBox(height: 8),
-          Text(
-            statusLabel,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: statusColor,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+        if (job.isDownloading) ...[
           const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
+          SizedBox(
+            height: 2,
+            width: double.infinity,
             child: LinearProgressIndicator(
-              value: mergedJob.progress,
-              minHeight: 4,
-              backgroundColor: const Color(0xFF262A30),
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                Color(0xFF49D7E8),
-              ),
+              value: job.progress,
+              minHeight: 2,
+              backgroundColor: const Color(0xFF242424),
+              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.crimson),
             ),
           ),
         ],
       ],
     );
   }
+}
 
-  _DownloadQueueJob _mergedJob() {
-    final progress = activeProgress;
-    if (progress == null || progress.id.isEmpty || progress.id != job.id) {
-      return job;
-    }
+class _AlreadyOwnedDownloadGroup extends StatelessWidget {
+  const _AlreadyOwnedDownloadGroup({
+    required this.jobs,
+    required this.expanded,
+    required this.onToggle,
+  });
 
-    return job.copyWith(
-      title: progress.title.isEmpty ? job.title : progress.title,
-      status: progress.status.isEmpty ? job.status : progress.status,
-      progress: progress.progress,
+  final List<_DownloadQueueJob> jobs;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: onToggle,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Already owned · ${jobs.length}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTheme.textMuted,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 15,
+                    color: AppTheme.textMuted,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (expanded) ...[
+          const SizedBox(height: 8),
+          for (final job in jobs) ...[
+            _DownloadQueueJobTile(job: job),
+            const SizedBox(height: 8),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _DownloadPanelHeaderTextButton extends StatefulWidget {
+  const _DownloadPanelHeaderTextButton({
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  State<_DownloadPanelHeaderTextButton> createState() =>
+      _DownloadPanelHeaderTextButtonState();
+}
+
+class _DownloadPanelHeaderTextButtonState
+    extends State<_DownloadPanelHeaderTextButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isEnabled = widget.onPressed != null;
+    final color = !isEnabled
+        ? AppTheme.textMuted.withValues(alpha: 0.45)
+        : (_hovered ? AppTheme.textPrimary : AppTheme.textMuted);
+
+    return MouseRegion(
+      cursor: isEnabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+          child: Text(
+            widget.label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -4797,24 +4959,17 @@ class _DownloadPanelActionButton extends StatelessWidget {
   const _DownloadPanelActionButton({
     required this.label,
     required this.onPressed,
-    required this.accent,
   });
 
   final String label;
   final VoidCallback? onPressed;
-  final bool accent;
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor = accent
-        ? const Color(0xFF49D7E8)
-        : const Color(0xFF18181B);
-    final foregroundColor = accent
-        ? const Color(0xFF03161A)
-        : AppTheme.textPrimary;
-
     return Material(
-      color: backgroundColor,
+      color: onPressed == null
+          ? const Color(0xFF2C6670)
+          : const Color(0xFF49D7E8),
       child: InkWell(
         onTap: onPressed,
         mouseCursor: onPressed == null
@@ -4822,17 +4977,11 @@ class _DownloadPanelActionButton extends StatelessWidget {
             : SystemMouseCursors.click,
         child: Container(
           height: 38,
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: accent ? Colors.transparent : AppTheme.border,
-              width: 0.5,
-            ),
-          ),
           alignment: Alignment.center,
           child: Text(
             label,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: foregroundColor,
+              color: Colors.white,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -5858,4 +6007,3 @@ class _TopBarIconButtonState extends State<_TopBarIconButton> {
     );
   }
 }
-

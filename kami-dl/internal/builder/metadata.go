@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/AkinAkinbobola/kamimashita/kami-dl/internal/nhentai"
 )
@@ -126,6 +127,88 @@ func GenerateComicInfo(gallery *nhentai.Gallery) *ComicInfo {
 	}
 
 	return info
+}
+
+func uniqueTagNames(gallery *nhentai.Gallery, tagType string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0)
+
+	for _, tag := range gallery.Tags {
+		if tag.Type != tagType {
+			continue
+		}
+
+		normalized := strings.TrimSpace(tag.Name)
+		if normalized == "" {
+			continue
+		}
+
+		key := strings.ToLower(normalized)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, normalized)
+	}
+
+	return result
+}
+
+func titleCaseName(value string) string {
+	words := strings.Fields(strings.ToLower(strings.TrimSpace(value)))
+	for i, word := range words {
+		runes := []rune(word)
+		makeUpper := true
+		for j, r := range runes {
+			if makeUpper && unicode.IsLetter(r) {
+				runes[j] = unicode.ToUpper(r)
+				makeUpper = false
+				continue
+			}
+			if r == '-' || r == '/' || r == '(' {
+				makeUpper = true
+			}
+		}
+		words[i] = string(runes)
+	}
+	return strings.Join(words, " ")
+}
+
+func sanitizeArtistFolder(value, fallback string) string {
+	return sanitizeWindowsComponent(value, fallback)
+}
+
+func sanitizeWindowsComponent(value, fallback string) string {
+	sanitized := strings.TrimSpace(value)
+	sanitized = strings.ReplaceAll(sanitized, "\t", " ")
+	sanitized = strings.ReplaceAll(sanitized, "\r", " ")
+	sanitized = strings.ReplaceAll(sanitized, "\n", " ")
+	sanitized = strings.ReplaceAll(sanitized, "<", "(")
+	sanitized = strings.ReplaceAll(sanitized, ">", ")")
+	sanitized = strings.ReplaceAll(sanitized, ":", " -")
+	sanitized = strings.ReplaceAll(sanitized, "\"", "'")
+	sanitized = strings.ReplaceAll(sanitized, "|", " ")
+	sanitized = strings.ReplaceAll(sanitized, "?", "")
+	sanitized = strings.ReplaceAll(sanitized, "*", "")
+	sanitized = strings.ReplaceAll(sanitized, "\\", "-")
+	sanitized = strings.ReplaceAll(sanitized, "/", "-")
+	sanitized = strings.Join(strings.Fields(sanitized), " ")
+	sanitized = strings.TrimRight(strings.TrimSpace(sanitized), " .")
+
+	if sanitized == "" {
+		sanitized = fallback
+	}
+
+	reserved := map[string]bool{
+		"CON": true, "PRN": true, "AUX": true, "NUL": true,
+		"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
+		"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+	}
+	if reserved[strings.ToUpper(sanitized)] {
+		sanitized = "_" + sanitized
+	}
+
+	return sanitized
 }
 
 func resolveComicInfoSeries(gallery *nhentai.Gallery) string {

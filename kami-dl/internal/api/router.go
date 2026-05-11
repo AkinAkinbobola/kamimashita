@@ -21,6 +21,7 @@ func NewRouter(handlers *Handlers) http.Handler {
 	r.Post("/start", handlers.Start)
 	r.Post("/pause", handlers.Pause)
 	r.Get("/jobs", handlers.Jobs)
+	r.Delete("/jobs", handlers.ClearFinishedJobs)
 	r.Get("/status", handlers.Status)
 	r.Get("/progress", handlers.Progress)
 	r.Options("/*", func(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +41,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Cache-Control,Last-Event-ID")
 		}
 		if r.Method == http.MethodOptions {

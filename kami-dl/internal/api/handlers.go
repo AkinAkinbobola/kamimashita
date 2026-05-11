@@ -69,6 +69,11 @@ func (h *Handlers) Jobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, jobs)
 }
 
+func (h *Handlers) ClearFinishedJobs(w http.ResponseWriter, r *http.Request) {
+	cleared := h.manager.ClearFinished()
+	writeJSON(w, http.StatusOK, map[string]any{"cleared": cleared})
+}
+
 func (h *Handlers) Progress(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {

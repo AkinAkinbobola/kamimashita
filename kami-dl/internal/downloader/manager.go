@@ -210,6 +210,23 @@ func (m *Manager) ListJobs() []models.Job {
 	return jobs
 }
 
+func (m *Manager) ClearFinished() int {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
+	cleared := 0
+	for id, job := range m.jobs {
+		if job.Status != models.StatusDone &&
+			job.Status != models.StatusDuplicate &&
+			job.Status != models.StatusFailed {
+			continue
+		}
+		delete(m.jobs, id)
+		cleared++
+	}
+	return cleared
+}
+
 func (m *Manager) StatusSnapshot() StatusSnapshot {
 	m.stateMu.RLock()
 	defer m.stateMu.RUnlock()
