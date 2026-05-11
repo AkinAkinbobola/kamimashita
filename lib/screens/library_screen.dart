@@ -167,6 +167,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   bool _isLoadingDownloadStatus = false;
   bool _isDownloaderReachable = true;
   List<_DownloadQueueJob> _downloadJobs = const <_DownloadQueueJob>[];
+  _DownloadActiveProgress? _downloadActiveProgress;
 
   bool get _isDetailsOpen => _selectedArchive != null;
 
@@ -497,13 +498,24 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   Future<void> _refreshDownloadStatus() async {
     try {
-      final response = await _downloaderDio.get<Object>('/status');
-      final payload = _DownloadStatusPayload.fromJson(_decodeJsonMap(response.data));
+      final responses = await Future.wait<Object?>([
+        _downloaderDio.get<Object>('/jobs'),
+        _downloaderDio.get<Object>('/status'),
+      ]);
+      final jobsPayload = (responses[0] as Response<Object>).data;
+      final statusPayload = (responses[1] as Response<Object>).data;
+      final jobs = _decodeJsonList(jobsPayload)
+          .map(_DownloadQueueJob.fromJson)
+          .toList(growable: false);
+      final activeProgress = _DownloadActiveProgress.fromStatusJson(
+        _decodeJsonMap(statusPayload),
+      );
       if (!mounted) {
         return;
       }
       setState(() {
-        _downloadJobs = payload.jobs;
+        _downloadJobs = jobs;
+        _downloadActiveProgress = activeProgress;
         _isDownloaderReachable = true;
         _isLoadingDownloadStatus = false;
       });
@@ -513,6 +525,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       }
       setState(() {
         _downloadJobs = const <_DownloadQueueJob>[];
+        _downloadActiveProgress = null;
         _isDownloaderReachable = false;
         _isLoadingDownloadStatus = false;
       });
@@ -2704,6 +2717,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                       child: _DownloadPanel(
                         inputController: _downloadInputController,
                         jobs: _downloadJobs,
+                        activeProgress: _downloadActiveProgress,
                         isLoading: _isLoadingDownloadStatus,
                         isReachable: _isDownloaderReachable,
                         isAdding: _isQueueSubmitting,
@@ -2745,51 +2759,60 @@ Map<String, dynamic> _decodeJsonMap(Object? data) {
   return const <String, dynamic>{};
 }
 
-class _DownloadStatusPayload {
-  const _DownloadStatusPayload({required this.jobs});
+List<Map<String, dynamic>> _decodeJsonList(Object? data) {
+  if (data is List) {
+    return data.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList(growable: false);
+  }
+  if (data is String) {
+    final decoded = jsonDecode(data);
+    if (decoded is List) {
+      return decoded.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList(growable: false);
+    }
+  }
+  return const <Map<String, dynamic>>[];
+}
 
-  final List<_DownloadQueueJob> jobs;
+class _DownloadActiveProgress {
+  const _DownloadActiveProgress({
+    required this.id,
+    required this.title,
+    required this.status,
+    required this.progress,
+  });
 
-  factory _DownloadStatusPayload.fromJson(Map<String, dynamic> json) {
+  final String id;
+  final String title;
+  final String status;
+  final double? progress;
+
+  factory _DownloadActiveProgress.fromStatusJson(Map<String, dynamic> json) {
     final progressRaw = json['progress'];
-    final progressJob = progressRaw is Map
-        ? _DownloadQueueJob.fromJson(Map<String, dynamic>.from(progressRaw))
-        : null;
-
-    final jobsRaw = json['jobs'];
-    if (jobsRaw is List) {
-      final jobs = jobsRaw
-          .whereType<Map>()
-          .map(
-            (job) => _DownloadQueueJob.fromJson(Map<String, dynamic>.from(job)),
-          )
-          .toList(growable: false);
-
-      if (progressJob == null) {
-        return _DownloadStatusPayload(jobs: jobs);
-      }
-
-      final mergedJobs = jobs.map((job) {
-        if (job.id == progressJob.id && job.id.isNotEmpty) {
-          return job.copyWith(
-            title: progressJob.title,
-            status: progressJob.status,
-            progress: progressJob.progress,
-          );
-        }
-        return job;
-      }).toList(growable: false);
-
-      final containsProgress = mergedJobs.any(
-        (job) => job.id.isNotEmpty && job.id == progressJob.id,
-      );
-      return _DownloadStatusPayload(
-        jobs: containsProgress ? mergedJobs : [...mergedJobs, progressJob],
+    if (progressRaw is! Map) {
+      return const _DownloadActiveProgress(
+        id: '',
+        title: '',
+        status: '',
+        progress: null,
       );
     }
 
-    return _DownloadStatusPayload(
-      jobs: progressJob == null ? const <_DownloadQueueJob>[] : [progressJob],
+    final progressJson = Map<String, dynamic>.from(progressRaw);
+    final rawPercentage = progressJson['percentage'];
+    double? progress;
+    if (rawPercentage is num) {
+      progress = (rawPercentage.toDouble() / 100).clamp(0.0, 1.0);
+    } else {
+      final parsed = double.tryParse(rawPercentage?.toString() ?? '');
+      if (parsed != null) {
+        progress = (parsed / 100).clamp(0.0, 1.0);
+      }
+    }
+
+    return _DownloadActiveProgress(
+      id: (progressJson['gallery_id'] ?? '').toString().trim(),
+      title: (progressJson['title'] ?? '').toString().trim(),
+      status: (progressJson['status'] ?? '').toString().trim(),
+      progress: progress,
     );
   }
 }
@@ -4407,6 +4430,7 @@ class _DownloadPanel extends StatelessWidget {
   const _DownloadPanel({
     required this.inputController,
     required this.jobs,
+    required this.activeProgress,
     required this.isLoading,
     required this.isReachable,
     required this.isAdding,
@@ -4420,6 +4444,7 @@ class _DownloadPanel extends StatelessWidget {
 
   final TextEditingController inputController;
   final List<_DownloadQueueJob> jobs;
+  final _DownloadActiveProgress? activeProgress;
   final bool isLoading;
   final bool isReachable;
   final bool isAdding;
@@ -4576,6 +4601,7 @@ class _DownloadPanel extends StatelessWidget {
                                       itemBuilder: (context, index) =>
                                           _DownloadQueueJobTile(
                                         job: jobs[index],
+                                        activeProgress: activeProgress,
                                       ),
                                     ),
                                   ),
@@ -4612,29 +4638,31 @@ class _DownloadPanel extends StatelessWidget {
 }
 
 class _DownloadQueueJobTile extends StatelessWidget {
-  const _DownloadQueueJobTile({required this.job});
+  const _DownloadQueueJobTile({required this.job, this.activeProgress});
 
   final _DownloadQueueJob job;
+  final _DownloadActiveProgress? activeProgress;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final statusLabel = switch (job.normalizedStatus) {
+    final mergedJob = _mergedJob();
+    final statusLabel = switch (mergedJob.normalizedStatus) {
       'done' => 'Done',
       'failed' => 'Failed',
       'duplicate' => 'Already owned',
       'pending' => 'Waiting',
       'downloading' => 'Downloading',
-      _ => job.status.trim().isEmpty ? 'Pending' : job.status,
+      _ => mergedJob.status.trim().isEmpty ? 'Pending' : mergedJob.status,
     };
-    final statusColor = switch (job.normalizedStatus) {
+    final statusColor = switch (mergedJob.normalizedStatus) {
       'done' => const Color(0xFF63D471),
       'failed' => const Color(0xFFE57373),
       'duplicate' || 'pending' => AppTheme.textMuted,
       'downloading' => const Color(0xFF49D7E8),
       _ => AppTheme.textSecondary,
     };
-    final trailing = switch (job.normalizedStatus) {
+    final trailing = switch (mergedJob.normalizedStatus) {
       'done' => Icon(
           Icons.check_circle_outline,
           size: 16,
@@ -4662,7 +4690,7 @@ class _DownloadQueueJobTile extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                job.displayTitle,
+                mergedJob.displayTitle,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -4675,7 +4703,7 @@ class _DownloadQueueJobTile extends StatelessWidget {
             trailing,
           ],
         ),
-        if (job.isDownloading) ...[
+        if (mergedJob.isDownloading) ...[
           const SizedBox(height: 8),
           Text(
             statusLabel,
@@ -4688,7 +4716,7 @@ class _DownloadQueueJobTile extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
-              value: job.progress,
+              value: mergedJob.progress,
               minHeight: 4,
               backgroundColor: const Color(0xFF262A30),
               valueColor: const AlwaysStoppedAnimation<Color>(
@@ -4698,6 +4726,19 @@ class _DownloadQueueJobTile extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+
+  _DownloadQueueJob _mergedJob() {
+    final progress = activeProgress;
+    if (progress == null || progress.id.isEmpty || progress.id != job.id) {
+      return job;
+    }
+
+    return job.copyWith(
+      title: progress.title.isEmpty ? job.title : progress.title,
+      status: progress.status.isEmpty ? job.status : progress.status,
+      progress: progress.progress,
     );
   }
 }

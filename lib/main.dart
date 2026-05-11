@@ -12,6 +12,7 @@ import 'utils/app_strings.dart';
 import 'widgets/theme.dart';
 
 Process? _kamaDlProcess;
+const int _kamaDlPort = 8765;
 
 /// Entry point for the Kamimashita app.
 Future<void> main() async {
@@ -44,6 +45,10 @@ Future<void> _startKamaDlIfConfigured() async {
     return;
   }
 
+  if (await _isKamiDlPortInUse()) {
+    return;
+  }
+
   final settings = SettingsModel.instance;
   if (!settings.isLoaded) {
     await settings.addListenerFuture();
@@ -68,6 +73,24 @@ Future<void> _startKamaDlIfConfigured() async {
   _kamaDlProcess!.exitCode.whenComplete(() {
     _kamaDlProcess = null;
   });
+}
+
+Future<bool> _isKamiDlPortInUse() async {
+  Socket? socket;
+  try {
+    socket = await Socket.connect(
+      InternetAddress.loopbackIPv4,
+      _kamaDlPort,
+      timeout: const Duration(milliseconds: 500),
+    );
+    return true;
+  } on SocketException {
+    return false;
+  } on TimeoutException {
+    return false;
+  } finally {
+    await socket?.close();
+  }
 }
 
 Future<void> _stopKamaDlIfRunning() async {

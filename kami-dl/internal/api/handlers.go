@@ -64,6 +64,11 @@ func (h *Handlers) Status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.manager.StatusSnapshot())
 }
 
+func (h *Handlers) Jobs(w http.ResponseWriter, r *http.Request) {
+	jobs := h.manager.ListJobs()
+	writeJSON(w, http.StatusOK, jobs)
+}
+
 func (h *Handlers) Progress(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {

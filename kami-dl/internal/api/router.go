@@ -20,6 +20,7 @@ func NewRouter(handlers *Handlers) http.Handler {
 	r.Post("/queue", handlers.Queue)
 	r.Post("/start", handlers.Start)
 	r.Post("/pause", handlers.Pause)
+	r.Get("/jobs", handlers.Jobs)
 	r.Get("/status", handlers.Status)
 	r.Get("/progress", handlers.Progress)
 	r.Options("/*", func(w http.ResponseWriter, r *http.Request) {

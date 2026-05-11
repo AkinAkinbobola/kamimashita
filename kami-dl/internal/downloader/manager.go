@@ -191,6 +191,25 @@ func (m *Manager) SubscribeProgress() (<-chan models.Progress, func()) {
 	return ch, cleanup
 }
 
+func (m *Manager) ListJobs() []models.Job {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+
+	jobs := make([]models.Job, 0, len(m.jobs))
+	for _, job := range m.jobs {
+		jobs = append(jobs, *job)
+	}
+
+	sort.Slice(jobs, func(i, j int) bool {
+		if jobs[i].AddedAt.Equal(jobs[j].AddedAt) {
+			return jobs[i].ID < jobs[j].ID
+		}
+		return jobs[i].AddedAt.After(jobs[j].AddedAt)
+	})
+
+	return jobs
+}
+
 func (m *Manager) StatusSnapshot() StatusSnapshot {
 	m.stateMu.RLock()
 	defer m.stateMu.RUnlock()
