@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ const galleryWorkers = 3
 
 type StatusSnapshot struct {
 	Counts   map[models.JobStatus]int `json:"counts"`
+	Jobs     []models.Job             `json:"jobs"`
 	Progress *models.Progress         `json:"progress,omitempty"`
 	Total    int                      `json:"total"`
 }
@@ -202,12 +204,22 @@ func (m *Manager) StatusSnapshot() StatusSnapshot {
 	for _, job := range m.jobs {
 		counts[job.Status]++
 	}
+	jobs := make([]models.Job, 0, len(m.jobs))
+	for _, job := range m.jobs {
+		jobs = append(jobs, *job)
+	}
+	sort.Slice(jobs, func(i, j int) bool {
+		if jobs[i].UpdatedAt.Equal(jobs[j].UpdatedAt) {
+			return jobs[i].AddedAt.After(jobs[j].AddedAt)
+		}
+		return jobs[i].UpdatedAt.After(jobs[j].UpdatedAt)
+	})
 	var progress *models.Progress
 	if m.currentProgress != nil {
 		copy := *m.currentProgress
 		progress = &copy
 	}
-	return StatusSnapshot{Counts: counts, Progress: progress, Total: len(m.jobs)}
+	return StatusSnapshot{Counts: counts, Jobs: jobs, Progress: progress, Total: len(m.jobs)}
 }
 
 func (m *Manager) galleryWorker(ctx context.Context) {

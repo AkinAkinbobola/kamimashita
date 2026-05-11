@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -92,13 +94,26 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   static const _focusRevalidateCooldown = Duration(seconds: 30);
   static const String _archiveRatingPrefix = 'rating:';
   static const int _libraryHistoryLimit = 20;
+  static const double _downloadPanelWidth = 220;
+  static const _downloadStatusPollInterval = Duration(seconds: 2);
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final _controller = TextEditingController();
+  final _downloadInputController = TextEditingController();
   final _focusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
+  late final Dio _downloaderDio = Dio(
+    BaseOptions(
+      baseUrl: 'http://127.0.0.1:8765',
+      connectTimeout: const Duration(seconds: 2),
+      receiveTimeout: const Duration(seconds: 2),
+      sendTimeout: const Duration(seconds: 2),
+      headers: const {'Content-Type': 'application/json'},
+    ),
+  );
   late final ProviderSubscription<Object> _libraryRefreshSubscription;
   Timer? _focusRevalidateTimer;
+  Timer? _downloadStatusTimer;
   List<Archive> _items = const [];
   List<LanraragiTagStat> _tagStats = const [];
   List<_SearchSuggestion> _suggestions = const [];
@@ -145,6 +160,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   bool _didApplyPersistedLibraryFilters = false;
   bool _didRunInitialLibraryLoad = false;
   final List<_LibraryHistoryEntry> _libraryHistory = <_LibraryHistoryEntry>[];
+  bool _isDownloadPanelOpen = false;
+  bool _isQueueSubmitting = false;
+  bool _isStartActionInFlight = false;
+  bool _isPauseActionInFlight = false;
+  bool _isLoadingDownloadStatus = false;
+  bool _isDownloaderReachable = true;
+  List<_DownloadQueueJob> _downloadJobs = const <_DownloadQueueJob>[];
 
   bool get _isDetailsOpen => _selectedArchive != null;
 
@@ -427,15 +449,174 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       windowManager.removeListener(this);
     }
     _focusRevalidateTimer?.cancel();
+    _downloadStatusTimer?.cancel();
     _libraryRefreshSubscription.close();
     ref.read(libraryStateProvider).removeListener(_handleLibraryStateChanged);
     SettingsModel.instance.removeListener(_onSettingsChanged);
     _controller.removeListener(_onQueryChanged);
     _scrollController.removeListener(_onScroll);
+    _downloadInputController.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _toggleDownloadPanel() {
+    if (_isDownloadPanelOpen) {
+      _closeDownloadPanel();
+      return;
+    }
+
+    if (_isDetailsOpen) {
+      _closeArchiveDetails();
+    }
+
+    setState(() {
+      _isDownloadPanelOpen = true;
+      _isLoadingDownloadStatus = true;
+      _isDownloaderReachable = true;
+    });
+    _startDownloadStatusPolling();
+  }
+
+  void _closeDownloadPanel() {
+    _downloadStatusTimer?.cancel();
+    setState(() {
+      _isDownloadPanelOpen = false;
+    });
+  }
+
+  void _startDownloadStatusPolling() {
+    _downloadStatusTimer?.cancel();
+    unawaited(_refreshDownloadStatus());
+    _downloadStatusTimer = Timer.periodic(_downloadStatusPollInterval, (_) {
+      unawaited(_refreshDownloadStatus());
+    });
+  }
+
+  Future<void> _refreshDownloadStatus() async {
+    try {
+      final response = await _downloaderDio.get<Object>('/status');
+      final payload = _DownloadStatusPayload.fromJson(_decodeJsonMap(response.data));
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _downloadJobs = payload.jobs;
+        _isDownloaderReachable = true;
+        _isLoadingDownloadStatus = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _downloadJobs = const <_DownloadQueueJob>[];
+        _isDownloaderReachable = false;
+        _isLoadingDownloadStatus = false;
+      });
+    }
+  }
+
+  Future<void> _addDownloadJobs() async {
+    final ids = _extractDownloadIds(_downloadInputController.text);
+    if (ids.isEmpty || _isQueueSubmitting) {
+      return;
+    }
+
+    setState(() {
+      _isQueueSubmitting = true;
+    });
+
+    try {
+      await _downloaderDio.post<Object>('/queue', data: <String, Object>{'ids': ids});
+      _downloadInputController.clear();
+      await _refreshDownloadStatus();
+    } catch (error) {
+      if (mounted) {
+        _showStatusSnackBar(
+          error.toString().replaceFirst('DioException: ', ''),
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isQueueSubmitting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _startDownloadQueue() async {
+    if (_isStartActionInFlight) {
+      return;
+    }
+
+    setState(() {
+      _isStartActionInFlight = true;
+    });
+
+    try {
+      await _downloaderDio.post<Object>('/start');
+      await _refreshDownloadStatus();
+    } catch (error) {
+      if (mounted) {
+        _showStatusSnackBar(
+          error.toString().replaceFirst('DioException: ', ''),
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isStartActionInFlight = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pauseDownloadQueue() async {
+    if (_isPauseActionInFlight) {
+      return;
+    }
+
+    setState(() {
+      _isPauseActionInFlight = true;
+    });
+
+    try {
+      await _downloaderDio.post<Object>('/pause');
+      await _refreshDownloadStatus();
+    } catch (error) {
+      if (mounted) {
+        _showStatusSnackBar(
+          error.toString().replaceFirst('DioException: ', ''),
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPauseActionInFlight = false;
+        });
+      }
+    }
+  }
+
+  List<String> _extractDownloadIds(String input) {
+    final matches = RegExp(r'\d+').allMatches(input);
+    final ids = <String>[];
+    final seen = <String>{};
+    for (final match in matches) {
+      final id = match.group(0);
+      if (id == null || !seen.add(id)) {
+        continue;
+      }
+      ids.add(id);
+    }
+    return ids;
   }
 
   void _onQueryChanged() {
@@ -2359,6 +2540,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             unawaited(_refreshVisibleDataInBackground());
           },
           isRefreshLoading: _isRefreshRevalidating,
+          onToggleDownloadPanel: _toggleDownloadPanel,
+          isDownloadPanelOpen: _isDownloadPanelOpen,
+          onOpenSettings: openSettings,
           onOpenSidebarMenu: () => _scaffoldKey.currentState?.openDrawer(),
         ),
       ),
@@ -2373,7 +2557,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               ? 0.0
               : (useCompactSidebar ? compactSidebarWidth : fullSidebarWidth);
 
-          return Row(
+          final mainLayout = Row(
             children: [
               if (!useDrawerSidebar)
                 SizedBox(
@@ -2471,13 +2655,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                             isUpdatingCategories:
                                 _isUpdatingSelectedArchiveCategories,
                             isUpdatingRating:
-                              _isUpdatingSelectedArchiveRating,
+                                _isUpdatingSelectedArchiveRating,
                             isDeletingArchive: _isDeletingSelectedArchive,
                             currentRating: _selectedArchive == null
-                              ? null
-                              : _archiveRatingFromTags(
-                                _selectedArchive!.parsedTags,
-                                ),
+                                ? null
+                                : _archiveRatingFromTags(
+                                    _selectedArchive!.parsedTags,
+                                  ),
                             categoryMessage: _selectedArchiveCategoryMessage,
                             categoryMessageIsError:
                                 _selectedArchiveCategoryMessageIsError,
@@ -2501,8 +2685,170 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               ),
             ],
           );
+
+          return Stack(
+            children: [
+              Positioned.fill(child: mainLayout),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: IgnorePointer(
+                  ignoring: !_isDownloadPanelOpen,
+                  child: AnimatedSlide(
+                    offset: _isDownloadPanelOpen
+                        ? Offset.zero
+                        : const Offset(-1, 0),
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    child: SizedBox(
+                      width: _downloadPanelWidth,
+                      child: _DownloadPanel(
+                        inputController: _downloadInputController,
+                        jobs: _downloadJobs,
+                        isLoading: _isLoadingDownloadStatus,
+                        isReachable: _isDownloaderReachable,
+                        isAdding: _isQueueSubmitting,
+                        isStarting: _isStartActionInFlight,
+                        isPausing: _isPauseActionInFlight,
+                        onClose: _closeDownloadPanel,
+                        onAdd: _addDownloadJobs,
+                        onStart: _startDownloadQueue,
+                        onPause: _pauseDownloadQueue,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
         },
       ),
+    );
+  }
+}
+
+Map<String, dynamic> _decodeJsonMap(Object? data) {
+  if (data is Map<String, dynamic>) {
+    return data;
+  }
+  if (data is Map) {
+    return Map<String, dynamic>.from(data);
+  }
+  if (data is String) {
+    final decoded = jsonDecode(data);
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    if (decoded is Map) {
+      return Map<String, dynamic>.from(decoded);
+    }
+  }
+  return const <String, dynamic>{};
+}
+
+class _DownloadStatusPayload {
+  const _DownloadStatusPayload({required this.jobs});
+
+  final List<_DownloadQueueJob> jobs;
+
+  factory _DownloadStatusPayload.fromJson(Map<String, dynamic> json) {
+    final progressRaw = json['progress'];
+    final progressJob = progressRaw is Map
+        ? _DownloadQueueJob.fromJson(Map<String, dynamic>.from(progressRaw))
+        : null;
+
+    final jobsRaw = json['jobs'];
+    if (jobsRaw is List) {
+      final jobs = jobsRaw
+          .whereType<Map>()
+          .map(
+            (job) => _DownloadQueueJob.fromJson(Map<String, dynamic>.from(job)),
+          )
+          .toList(growable: false);
+
+      if (progressJob == null) {
+        return _DownloadStatusPayload(jobs: jobs);
+      }
+
+      final mergedJobs = jobs.map((job) {
+        if (job.id == progressJob.id && job.id.isNotEmpty) {
+          return job.copyWith(
+            title: progressJob.title,
+            status: progressJob.status,
+            progress: progressJob.progress,
+          );
+        }
+        return job;
+      }).toList(growable: false);
+
+      final containsProgress = mergedJobs.any(
+        (job) => job.id.isNotEmpty && job.id == progressJob.id,
+      );
+      return _DownloadStatusPayload(
+        jobs: containsProgress ? mergedJobs : [...mergedJobs, progressJob],
+      );
+    }
+
+    return _DownloadStatusPayload(
+      jobs: progressJob == null ? const <_DownloadQueueJob>[] : [progressJob],
+    );
+  }
+}
+
+class _DownloadQueueJob {
+  const _DownloadQueueJob({
+    required this.id,
+    required this.title,
+    required this.status,
+    required this.progress,
+  });
+
+  final String id;
+  final String title;
+  final String status;
+  final double? progress;
+
+  String get displayTitle {
+    final normalizedTitle = title.trim();
+    if (normalizedTitle.isNotEmpty) {
+      return normalizedTitle;
+    }
+    return id;
+  }
+
+  bool get isDownloading => status.trim().toLowerCase() == 'downloading';
+
+  String get normalizedStatus => status.trim().toLowerCase();
+
+  factory _DownloadQueueJob.fromJson(Map<String, dynamic> json) {
+    final rawPercentage = json['percentage'];
+    double? progress;
+    if (rawPercentage is num) {
+      progress = (rawPercentage.toDouble() / 100).clamp(0.0, 1.0);
+    } else {
+      final parsed = double.tryParse(rawPercentage?.toString() ?? '');
+      if (parsed != null) {
+        progress = (parsed / 100).clamp(0.0, 1.0);
+      }
+    }
+
+    return _DownloadQueueJob(
+      id: (json['id'] ?? json['gallery_id'] ?? '').toString().trim(),
+      title: (json['title'] ?? '').toString().trim(),
+      status: (json['status'] ?? 'pending').toString().trim(),
+      progress: progress,
+    );
+  }
+
+  _DownloadQueueJob copyWith({
+    String? title,
+    String? status,
+    double? progress,
+  }) {
+    return _DownloadQueueJob(
+      id: id,
+      title: title ?? this.title,
+      status: status ?? this.status,
+      progress: progress ?? this.progress,
     );
   }
 }
@@ -4057,15 +4403,419 @@ class _ArchiveRatingRow extends StatelessWidget {
   }
 }
 
+class _DownloadPanel extends StatelessWidget {
+  const _DownloadPanel({
+    required this.inputController,
+    required this.jobs,
+    required this.isLoading,
+    required this.isReachable,
+    required this.isAdding,
+    required this.isStarting,
+    required this.isPausing,
+    required this.onClose,
+    required this.onAdd,
+    required this.onStart,
+    required this.onPause,
+  });
+
+  final TextEditingController inputController;
+  final List<_DownloadQueueJob> jobs;
+  final bool isLoading;
+  final bool isReachable;
+  final bool isAdding;
+  final bool isStarting;
+  final bool isPausing;
+  final VoidCallback onClose;
+  final VoidCallback onAdd;
+  final VoidCallback onStart;
+  final VoidCallback onPause;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Material(
+      color: AppTheme.surface,
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          border: Border(
+            right: BorderSide(color: AppTheme.border, width: 0.5),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black54,
+              blurRadius: 18,
+              offset: Offset(6, 0),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 10, 12),
+                child: Row(
+                  children: [
+                    Text(
+                      'Download',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    _TopBarIconButton(icon: Icons.close, onPressed: onClose),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 80),
+                  child: TextField(
+                    controller: inputController,
+                    minLines: 4,
+                    maxLines: null,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: AppTheme.textPrimary,
+                    ),
+                    decoration: InputDecoration(
+                      hintText:
+                          'Paste nhentai IDs separated by commas or new lines',
+                      hintStyle: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTheme.textMuted,
+                      ),
+                      filled: true,
+                      fillColor: const Color(0xFF18181B),
+                      contentPadding: const EdgeInsets.all(12),
+                      border: const OutlineInputBorder(
+                        borderRadius: BorderRadius.zero,
+                        borderSide: BorderSide(
+                          color: AppTheme.border,
+                          width: 0.5,
+                        ),
+                      ),
+                      enabledBorder: const OutlineInputBorder(
+                        borderRadius: BorderRadius.zero,
+                        borderSide: BorderSide(
+                          color: AppTheme.border,
+                          width: 0.5,
+                        ),
+                      ),
+                      focusedBorder: const OutlineInputBorder(
+                        borderRadius: BorderRadius.zero,
+                        borderSide: BorderSide(
+                          color: Color(0xFF49D7E8),
+                          width: 0.8,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: _DownloadPanelActionButton(
+                    label: isAdding ? 'Adding...' : 'Add',
+                    onPressed: isAdding ? null : onAdd,
+                    accent: false,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Container(
+                  color: const Color(0xFF141417),
+                  width: double.infinity,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: isLoading
+                        ? const Center(
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : !isReachable
+                            ? Center(
+                                child: Text(
+                                  'Downloader not running',
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: AppTheme.textMuted,
+                                  ),
+                                ),
+                              )
+                            : jobs.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      'No queued downloads',
+                                      textAlign: TextAlign.center,
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: AppTheme.textMuted,
+                                      ),
+                                    ),
+                                  )
+                                : _Scrollbarless(
+                                    child: ListView.separated(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      itemCount: jobs.length,
+                                      separatorBuilder: (context, index) =>
+                                          const Divider(
+                                        height: 16,
+                                        thickness: 0.5,
+                                        color: AppTheme.border,
+                                      ),
+                                      itemBuilder: (context, index) =>
+                                          _DownloadQueueJobTile(
+                                        job: jobs[index],
+                                      ),
+                                    ),
+                                  ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _DownloadPanelActionButton(
+                        label: isStarting ? 'Starting...' : 'Start',
+                        onPressed: isStarting ? null : onStart,
+                        accent: true,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _DownloadPanelPlainActionButton(
+                        label: isPausing ? 'Pausing...' : 'Pause',
+                        onPressed: isPausing ? null : onPause,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DownloadQueueJobTile extends StatelessWidget {
+  const _DownloadQueueJobTile({required this.job});
+
+  final _DownloadQueueJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final statusLabel = switch (job.normalizedStatus) {
+      'done' => 'Done',
+      'failed' => 'Failed',
+      'duplicate' => 'Already owned',
+      'pending' => 'Waiting',
+      'downloading' => 'Downloading',
+      _ => job.status.trim().isEmpty ? 'Pending' : job.status,
+    };
+    final statusColor = switch (job.normalizedStatus) {
+      'done' => const Color(0xFF63D471),
+      'failed' => const Color(0xFFE57373),
+      'duplicate' || 'pending' => AppTheme.textMuted,
+      'downloading' => const Color(0xFF49D7E8),
+      _ => AppTheme.textSecondary,
+    };
+    final trailing = switch (job.normalizedStatus) {
+      'done' => Icon(
+          Icons.check_circle_outline,
+          size: 16,
+          color: statusColor,
+        ),
+      'failed' => Icon(
+          Icons.close,
+          size: 16,
+          color: statusColor,
+        ),
+      _ => Text(
+          statusLabel,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: statusColor,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                job.displayTitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            trailing,
+          ],
+        ),
+        if (job.isDownloading) ...[
+          const SizedBox(height: 8),
+          Text(
+            statusLabel,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: statusColor,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: job.progress,
+              minHeight: 4,
+              backgroundColor: const Color(0xFF262A30),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFF49D7E8),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _DownloadPanelPlainActionButton extends StatefulWidget {
+  const _DownloadPanelPlainActionButton({
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  State<_DownloadPanelPlainActionButton> createState() =>
+      _DownloadPanelPlainActionButtonState();
+}
+
+class _DownloadPanelPlainActionButtonState
+    extends State<_DownloadPanelPlainActionButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isEnabled = widget.onPressed != null;
+    final color = !isEnabled
+        ? AppTheme.textMuted.withValues(alpha: 0.45)
+        : (_hovered ? AppTheme.textPrimary : AppTheme.textMuted);
+
+    return MouseRegion(
+      cursor: isEnabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          height: 38,
+          child: Align(
+            alignment: Alignment.center,
+            child: Text(
+              widget.label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DownloadPanelActionButton extends StatelessWidget {
+  const _DownloadPanelActionButton({
+    required this.label,
+    required this.onPressed,
+    required this.accent,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor = accent
+        ? const Color(0xFF49D7E8)
+        : const Color(0xFF18181B);
+    final foregroundColor = accent
+        ? const Color(0xFF03161A)
+        : AppTheme.textPrimary;
+
+    return Material(
+      color: backgroundColor,
+      child: InkWell(
+        onTap: onPressed,
+        mouseCursor: onPressed == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
+        child: Container(
+          height: 38,
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: accent ? Colors.transparent : AppTheme.border,
+              width: 0.5,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: foregroundColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.onRefresh,
     required this.isRefreshLoading,
+    required this.onToggleDownloadPanel,
+    required this.isDownloadPanelOpen,
+    required this.onOpenSettings,
     this.onOpenSidebarMenu,
   });
 
   final VoidCallback onRefresh;
   final bool isRefreshLoading;
+  final VoidCallback onToggleDownloadPanel;
+  final bool isDownloadPanelOpen;
+  final VoidCallback onOpenSettings;
   final VoidCallback? onOpenSidebarMenu;
 
   @override
@@ -4101,6 +4851,17 @@ class _TopBar extends StatelessWidget {
                       icon: Icons.refresh,
                       isLoading: isRefreshLoading,
                       onPressed: onRefresh,
+                    ),
+                    const SizedBox(width: 8),
+                    _TopBarIconButton(
+                      icon: Icons.download_outlined,
+                      onPressed: onToggleDownloadPanel,
+                      isActive: isDownloadPanelOpen,
+                    ),
+                    const SizedBox(width: 8),
+                    _TopBarIconButton(
+                      icon: Icons.settings,
+                      onPressed: onOpenSettings,
                     ),
                     const SizedBox(width: 8),
                     const WindowControls(),
@@ -5008,11 +5769,13 @@ class _TopBarIconButton extends StatefulWidget {
     required this.icon,
     required this.onPressed,
     this.isLoading = false,
+    this.isActive = false,
   });
 
   final IconData icon;
   final VoidCallback onPressed;
   final bool isLoading;
+  final bool isActive;
 
   @override
   State<_TopBarIconButton> createState() => _TopBarIconButtonState();
@@ -5043,9 +5806,11 @@ class _TopBarIconButtonState extends State<_TopBarIconButton> {
               : Icon(
                   widget.icon,
                   size: 18,
-                  color: _hovered
-                      ? AppTheme.textPrimary
-                      : AppTheme.textSecondary,
+                  color: widget.isActive
+                      ? const Color(0xFF49D7E8)
+                      : (_hovered
+                            ? AppTheme.textPrimary
+                            : AppTheme.textSecondary),
                 ),
         ),
       ),
