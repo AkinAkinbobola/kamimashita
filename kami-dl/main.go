@@ -23,6 +23,7 @@ const port = 8765
 
 func main() {
 	output := flag.String("output", "", "Path to the LRR watch folder")
+	apiKey := flag.String("api-key", "", "nhentai API key")
 	flag.Parse()
 
 	if *output == "" {
@@ -35,7 +36,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client := nhentai.NewClient()
+	client := nhentai.NewClient(*apiKey)
 	archiveBuilder := builder.New(*output)
 	manager := downloader.NewManager(client, archiveBuilder, *output)
 

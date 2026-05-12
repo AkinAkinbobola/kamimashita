@@ -11,6 +11,10 @@ abstract final class AppStrings {
   static const apiKeyHint = 'Raw or base64-encoded API key';
   static const contentFolderLabel = 'Content folder';
   static const contentFolderHint = 'Select the LANraragi content folder';
+  static const nhentaiApiKeyLabel = 'nhentai API key';
+  static const nhentaiApiKeyHint = 'Optional nhentai API key';
+  static const showApiKey = 'Show API key';
+  static const hideApiKey = 'Hide API key';
   static const browseFolder = 'Browse';
   static const backTooltip = 'Back';
   static const cancel = 'Cancel';

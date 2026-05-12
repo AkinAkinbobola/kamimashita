@@ -59,10 +59,20 @@ Future<void> _startKamaDlIfConfigured() async {
     return;
   }
 
-  await Process.start(executablePath, [
+  final processArguments = [
     '--output',
     contentFolderPath,
-  ], mode: ProcessStartMode.detached);
+  ];
+  final nhentaiApiKey = settings.nhentaiApiKey.trim();
+  if (nhentaiApiKey.isNotEmpty) {
+    processArguments.addAll(['--api-key', nhentaiApiKey]);
+  }
+
+  await Process.start(
+    executablePath,
+    processArguments,
+    mode: ProcessStartMode.detached,
+  );
 }
 
 Future<bool> _isKamiDlPortInUse() async {

@@ -18,6 +18,7 @@ import (
 
 const (
 	APIBase                = "https://nhentai.net/api/v2"
+	UserAgent              = "kami-dl/1.0 (github.com/AkinAkinbobola/kamimashita)"
 	MaxRetries             = 3
 	BackoffBase            = 2.0
 	MetadataRequestTimeout = 10 * time.Second
@@ -39,10 +40,11 @@ var (
 )
 
 type Client struct {
-	http *http.Client
+	http   *http.Client
+	apiKey string
 }
 
-func NewClient() *Client {
+func NewClient(apiKey string) *Client {
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		MaxIdleConns:          100,
@@ -59,6 +61,7 @@ func NewClient() *Client {
 			Transport: transport,
 			Timeout:   PageDownloadTimeout,
 		},
+		apiKey: strings.TrimSpace(apiKey),
 	}
 }
 
@@ -73,6 +76,7 @@ func (c *Client) FetchGallery(ctx context.Context, id string) (*Gallery, error) 
 			cancel()
 			return nil, err
 		}
+		c.setRequestHeaders(req)
 
 		resp, err := c.http.Do(req)
 		if err != nil {
@@ -209,7 +213,7 @@ func (c *Client) downloadToTemp(ctx context.Context, url string, tempPath string
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
+	c.setRequestHeaders(req)
 	req.Header.Set("Referer", "https://nhentai.net/")
 
 	resp, err := c.http.Do(req)
@@ -244,6 +248,13 @@ func (c *Client) downloadToTemp(ctx context.Context, url string, tempPath string
 		return closeErr
 	}
 	return nil
+}
+
+func (c *Client) setRequestHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", UserAgent)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Key "+c.apiKey)
+	}
 }
 
 func contextOrBackground(ctx context.Context) context.Context {

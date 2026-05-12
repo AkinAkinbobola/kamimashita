@@ -21,9 +21,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _urlController = TextEditingController();
   final _apiController = TextEditingController();
   final _contentFolderController = TextEditingController();
+  final _nhentaiApiController = TextEditingController();
   bool _isSaving = false;
   bool _isTesting = false;
   bool _isPickingFolder = false;
+  bool _showApiKey = false;
+  bool _showNhentaiApiKey = false;
   String? _statusText;
   bool _statusIsError = false;
 
@@ -34,6 +37,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _urlController.text = s.serverUrl;
     _apiController.text = s.apiKey;
     _contentFolderController.text = s.contentFolderPath;
+    _nhentaiApiController.text = s.nhentaiApiKey;
   }
 
   @override
@@ -41,6 +45,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _urlController.dispose();
     _apiController.dispose();
     _contentFolderController.dispose();
+    _nhentaiApiController.dispose();
     super.dispose();
   }
 
@@ -78,6 +83,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final serverUrl = _urlController.text.trim();
     final apiKey = _apiController.text.trim();
     final contentFolderPath = _contentFolderController.text.trim();
+    final nhentaiApiKey = _nhentaiApiController.text.trim();
     setState(() {
       _isSaving = true;
       _statusText = null;
@@ -88,6 +94,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         serverUrl: serverUrl,
         apiKey: apiKey,
         contentFolderPath: contentFolderPath,
+        nhentaiApiKey: nhentaiApiKey,
       );
       if (mounted) {
         Navigator.of(context).pop();
@@ -162,6 +169,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: AppTheme.crimson, width: 1),
       ),
+    );
+  }
+
+  Widget _obscuredApiKeyField({
+    required TextEditingController controller,
+    required String hintText,
+    required bool visible,
+    required VoidCallback onToggleVisibility,
+  }) {
+    return TextField(
+      controller: controller,
+      decoration: _fieldDecoration(hintText: hintText).copyWith(
+        suffixIcon: IconButton(
+          onPressed: onToggleVisibility,
+          tooltip: visible ? AppStrings.hideApiKey : AppStrings.showApiKey,
+          icon: Icon(
+            visible ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+          ),
+        ),
+      ),
+      obscureText: !visible,
     );
   }
 
@@ -240,12 +268,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          TextField(
+                          _obscuredApiKeyField(
                             controller: _apiController,
-                            decoration: _fieldDecoration(
-                              hintText: AppStrings.apiKeyHint,
-                            ),
-                            obscureText: true,
+                            hintText: AppStrings.apiKeyHint,
+                            visible: _showApiKey,
+                            onToggleVisibility: () {
+                              setState(() {
+                                _showApiKey = !_showApiKey;
+                              });
+                            },
                           ),
                           const SizedBox(height: 18),
                           Text(
@@ -295,6 +326,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 ),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            AppStrings.nhentaiApiKeyLabel,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _obscuredApiKeyField(
+                            controller: _nhentaiApiController,
+                            hintText: AppStrings.nhentaiApiKeyHint,
+                            visible: _showNhentaiApiKey,
+                            onToggleVisibility: () {
+                              setState(() {
+                                _showNhentaiApiKey = !_showNhentaiApiKey;
+                              });
+                            },
                           ),
                           const SizedBox(height: 18),
                           OutlinedButton(

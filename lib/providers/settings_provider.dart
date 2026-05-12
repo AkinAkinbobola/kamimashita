@@ -93,6 +93,9 @@ class SettingsModel extends ChangeNotifier {
   /// Current LANraragi content folder path.
   String contentFolderPath = '';
 
+  /// Current nhentai API key for local downloads.
+  String nhentaiApiKey = '';
+
   /// Whether thumbnails should be cropped in the grid.
   bool cropThumbnails = false;
 
@@ -155,6 +158,7 @@ class SettingsModel extends ChangeNotifier {
       serverUrl = data.serverUrl;
       apiKey = data.apiKey;
       contentFolderPath = data.contentFolderPath;
+      nhentaiApiKey = data.nhentaiApiKey;
       cropThumbnails = data.cropThumbnails;
       librarySelectedCategoryId = data.librarySelectedCategoryId;
       librarySortId = data.librarySortId;
@@ -181,6 +185,7 @@ class SettingsModel extends ChangeNotifier {
     String? serverUrl,
     String? apiKey,
     String? contentFolderPath,
+    String? nhentaiApiKey,
     bool? cropThumbnails,
   }) async {
     if (serverUrl != null) {
@@ -192,6 +197,9 @@ class SettingsModel extends ChangeNotifier {
     if (contentFolderPath != null) {
       this.contentFolderPath = contentFolderPath.trim();
     }
+    if (nhentaiApiKey != null) {
+      this.nhentaiApiKey = nhentaiApiKey.trim();
+    }
     if (cropThumbnails != null) {
       this.cropThumbnails = cropThumbnails;
     }
@@ -201,6 +209,7 @@ class SettingsModel extends ChangeNotifier {
       serverUrl: this.serverUrl,
       apiKey: this.apiKey,
       contentFolderPath: this.contentFolderPath,
+      nhentaiApiKey: this.nhentaiApiKey,
       cropThumbnails: this.cropThumbnails,
     );
   }
@@ -392,6 +401,8 @@ class SettingsModel extends ChangeNotifier {
   Future<void> clear() async {
     serverUrl = '';
     apiKey = '';
+    contentFolderPath = '';
+    nhentaiApiKey = '';
     cropThumbnails = false;
     librarySelectedCategoryId = '';
     librarySortId = 'title';

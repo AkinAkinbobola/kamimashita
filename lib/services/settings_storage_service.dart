@@ -12,6 +12,7 @@ class StoredSettingsData {
     required this.serverUrl,
     required this.apiKey,
     required this.contentFolderPath,
+    required this.nhentaiApiKey,
     required this.cropThumbnails,
     required this.librarySelectedCategoryId,
     required this.librarySortId,
@@ -37,6 +38,9 @@ class StoredSettingsData {
 
   /// Persisted LANraragi content folder path.
   final String contentFolderPath;
+
+  /// Persisted nhentai API key loaded from shared preferences.
+  final String nhentaiApiKey;
 
   /// Whether thumbnails should be cropped in grids.
   final bool cropThumbnails;
@@ -96,6 +100,7 @@ class SettingsStorageService {
   static const _legacyApiKeyKey = 'prefs_api_key';
   static const _secureApiKeyKey = 'secure_api_key';
   static const _contentFolderPathKey = 'contentFolderPath';
+  static const _nhentaiApiKeyKey = 'nhentaiApiKey';
   static const _cropThumbnailsKey = 'prefs_crop_thumbnails';
   static const _librarySelectedCategoryIdKey =
       'prefs_library_selected_category_id';
@@ -130,6 +135,8 @@ class SettingsStorageService {
       apiKey: apiKey,
       contentFolderPath:
           (sharedPreferences.getString(_contentFolderPathKey) ?? '').trim(),
+      nhentaiApiKey:
+          (sharedPreferences.getString(_nhentaiApiKeyKey) ?? '').trim(),
       cropThumbnails: sharedPreferences.getBool(_cropThumbnailsKey) ?? false,
       librarySelectedCategoryId:
           (sharedPreferences.getString(_librarySelectedCategoryIdKey) ?? '')
@@ -169,6 +176,7 @@ class SettingsStorageService {
     required String serverUrl,
     required String apiKey,
     required String contentFolderPath,
+    required String nhentaiApiKey,
     required bool cropThumbnails,
   }) async {
     final sharedPreferences = await SharedPreferences.getInstance();
@@ -180,6 +188,10 @@ class SettingsStorageService {
     await sharedPreferences.setString(
       _contentFolderPathKey,
       contentFolderPath.trim(),
+    );
+    await sharedPreferences.setString(
+      _nhentaiApiKeyKey,
+      nhentaiApiKey.trim(),
     );
     await _secureStorage.write(key: _secureApiKeyKey, value: apiKey.trim());
     await sharedPreferences.remove(_legacyApiKeyKey);
@@ -265,6 +277,7 @@ class SettingsStorageService {
       sharedPreferences.remove(_serverUrlKey),
       sharedPreferences.remove(_legacyApiKeyKey),
       sharedPreferences.remove(_contentFolderPathKey),
+      sharedPreferences.remove(_nhentaiApiKeyKey),
       sharedPreferences.remove(_cropThumbnailsKey),
       sharedPreferences.remove(_librarySelectedCategoryIdKey),
       sharedPreferences.remove(_librarySortIdKey),
