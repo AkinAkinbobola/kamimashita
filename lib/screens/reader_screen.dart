@@ -1486,6 +1486,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                                 continuousLayout: true,
                                                 onZoomLevelChanged:
                                                     _setZoomLevel,
+                                                onDoubleTap:
+                                                    _toggleFullscreen,
                                                 onInteraction:
                                                     _handleReaderToggleControlsTap,
                                                 onRetryRequested: _retry,
@@ -1553,6 +1555,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                             fromWheel: true,
                                           ),
                                       onZoomLevelChanged: _setZoomLevel,
+                                      onDoubleTap: _toggleFullscreen,
                                       onToggleControlsRequested:
                                           _handleReaderToggleControlsTap,
                                       onInteraction: null,
@@ -2744,6 +2747,7 @@ class _ReaderPage extends StatefulWidget {
     this.onNextPageFromWheelRequested,
     this.onPreviousPageFromWheelRequested,
     this.onZoomLevelChanged,
+    this.onDoubleTap,
     this.onToggleControlsRequested,
     required this.onInteraction,
     required this.onRetryRequested,
@@ -2766,6 +2770,7 @@ class _ReaderPage extends StatefulWidget {
   final VoidCallback? onNextPageFromWheelRequested;
   final VoidCallback? onPreviousPageFromWheelRequested;
   final ValueChanged<double>? onZoomLevelChanged;
+  final VoidCallback? onDoubleTap;
   final VoidCallback? onToggleControlsRequested;
   final VoidCallback? onInteraction;
   final VoidCallback onRetryRequested;
@@ -2932,13 +2937,6 @@ class _ReaderPageState extends State<_ReaderPage>
   }
 
   bool get _canPanZoomedImage => zoomLevel > 1.01;
-
-  void _resetZoomToDefault() {
-    if (!widget.zoomEnabled) {
-      return;
-    }
-    _resetZoom();
-  }
 
   void _handlePagedViewportTap(TapUpDetails details, Size viewportSize) {
     final ratio = viewportSize.width <= 0
@@ -3398,7 +3396,7 @@ class _ReaderPageState extends State<_ReaderPage>
               cursor: widget.mouseCursor,
               child: GestureDetector(
                 supportedDevices: _desktopGestureDevices,
-                onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
+                onDoubleTap: widget.onDoubleTap,
                 onTap: widget.onInteraction,
                 child: image,
               ),
@@ -3418,7 +3416,7 @@ class _ReaderPageState extends State<_ReaderPage>
                 child: GestureDetector(
                   supportedDevices: _desktopGestureDevices,
                   behavior: HitTestBehavior.opaque,
-                  onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
+                  onDoubleTap: widget.onDoubleTap,
                   onTapUp: (details) =>
                       _handlePagedViewportTap(details, viewportSize),
                   child: Stack(
@@ -3436,9 +3434,7 @@ class _ReaderPageState extends State<_ReaderPage>
                               supportedDevices: _desktopGestureDevices,
                               behavior: HitTestBehavior.opaque,
                               onTap: widget.onToggleControlsRequested,
-                              onDoubleTap: widget.zoomEnabled
-                                  ? _resetZoomToDefault
-                                  : null,
+                              onDoubleTap: widget.onDoubleTap,
                               child: const SizedBox.expand(),
                             ),
                           ),
@@ -3458,7 +3454,7 @@ class _ReaderPageState extends State<_ReaderPage>
             cursor: widget.mouseCursor,
             child: GestureDetector(
               supportedDevices: _desktopGestureDevices,
-              onDoubleTap: widget.zoomEnabled ? _resetZoomToDefault : null,
+              onDoubleTap: widget.onDoubleTap,
               onTap: widget.onInteraction,
               child: Listener(
                 onPointerSignal: _handlePagedPointerSignal,
