@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../utils/app_lifecycle.dart';
 import 'theme.dart';
 
 class WindowControls extends StatelessWidget {
@@ -48,7 +49,7 @@ class _WindowControlButton extends StatefulWidget {
 
   final IconData? icon;
   final Widget? glyph;
-  final Future<void> Function() onPressed;
+  final void Function() onPressed;
   final Color hoverColor;
   final Color? hoverIconColor;
 
@@ -215,5 +216,5 @@ Future<void> _toggleMaximizeWindow() async {
 }
 
 Future<void> _closeWindow() async {
-  await windowManager.close();
+  closeApp();
 }

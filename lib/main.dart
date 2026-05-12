@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -12,7 +11,6 @@ import 'screens/library_screen.dart';
 import 'utils/app_strings.dart';
 import 'widgets/theme.dart';
 
-Process? _kamaDlProcess;
 const int _kamaDlPort = 8765;
 
 /// Entry point for the Kamimashita app.
@@ -20,10 +18,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (_isDesktopPlatform) {
-    final windowListener = _AppWindowListener();
     await windowManager.ensureInitialized();
-    await windowManager.setPreventClose(true);
-    windowManager.addListener(windowListener);
     await windowManager.setMinimumSize(const Size(800, 600));
 
     const windowOptions = WindowOptions(
@@ -42,10 +37,6 @@ Future<void> main() async {
 }
 
 Future<void> _startKamaDlIfConfigured() async {
-  if (_kamaDlProcess != null) {
-    return;
-  }
-
   if (await _isKamiDlPortInUse()) {
     return;
   }
@@ -61,27 +52,17 @@ Future<void> _startKamaDlIfConfigured() async {
   }
 
   final executableDirectory = File(Platform.resolvedExecutable).parent.path;
-  final executablePath = '$executableDirectory${Platform.pathSeparator}kami-dl.exe';
+  final executablePath =
+      '$executableDirectory${Platform.pathSeparator}kami-dl.exe';
   final executableFile = File(executablePath);
   if (!await executableFile.exists()) {
     return;
   }
 
-  _kamaDlProcess = await Process.start(executablePath, [
+  await Process.start(executablePath, [
     '--output',
     contentFolderPath,
-  ]);
-  _kamaDlProcess!.stdout.transform(utf8.decoder).listen((data) {
-    // ignore: avoid_print
-    print('[kami-dl] $data');
-  });
-  _kamaDlProcess!.stderr.transform(utf8.decoder).listen((data) {
-    // ignore: avoid_print
-    print('[kami-dl ERROR] $data');
-  });
-  _kamaDlProcess!.exitCode.whenComplete(() {
-    _kamaDlProcess = null;
-  });
+  ], mode: ProcessStartMode.detached);
 }
 
 Future<bool> _isKamiDlPortInUse() async {
@@ -102,17 +83,6 @@ Future<bool> _isKamiDlPortInUse() async {
   }
 }
 
-Future<void> _stopKamaDlIfRunning() async {
-  final process = _kamaDlProcess;
-  if (process == null) {
-    return;
-  }
-
-  process.kill();
-  unawaited(Process.run('taskkill', ['/F', '/IM', 'kami-dl.exe']));
-  _kamaDlProcess = null;
-}
-
 /// Returns whether the current runtime platform supports desktop window APIs.
 bool get _isDesktopPlatform {
   if (kIsWeb) {
@@ -120,17 +90,11 @@ bool get _isDesktopPlatform {
   }
 
   return switch (defaultTargetPlatform) {
-    TargetPlatform.windows || TargetPlatform.linux || TargetPlatform.macOS => true,
+    TargetPlatform.windows ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => true,
     _ => false,
   };
-}
-
-class _AppWindowListener extends WindowListener {
-  @override
-  Future<void> onWindowClose() async {
-    await _stopKamaDlIfRunning();
-    await windowManager.destroy();
-  }
 }
 
 extension on SettingsModel {

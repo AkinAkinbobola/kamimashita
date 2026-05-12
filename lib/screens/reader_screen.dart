@@ -13,6 +13,7 @@ import '../models/archive.dart';
 import '../providers/client_provider.dart';
 import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
+import '../utils/app_lifecycle.dart';
 import '../widgets/cover_card.dart';
 import '../widgets/theme.dart';
 
@@ -1703,7 +1704,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                                                 tooltip: 'Close window',
                                                 icon: Icons.close_rounded,
                                                 onPressed: () async {
-                                                  await windowManager.close();
+                                                  closeApp();
                                                 },
                                               ),
                                             ],
