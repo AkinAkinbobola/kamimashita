@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'theme.dart';
 
@@ -33,46 +34,33 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
     ),
   );
   final TextEditingController _queryController = TextEditingController();
+  final TextEditingController _pageInputController = TextEditingController();
   final ScrollController _resultsScrollController = ScrollController();
   final Set<String> _ownedIds = <String>{};
   final Set<String> _selectedIds = <String>{};
   final List<_NhentaiSearchItem> _results = <_NhentaiSearchItem>[];
 
-  String _selectedSort = 'popular';
+  String _selectedSort = 'date';
   int _page = 1;
   int _total = 0;
   int _numPages = 0;
   bool _isLoadingOwned = true;
   bool _isSearching = false;
-  bool _isLoadingMore = false;
   bool _isQueueing = false;
   String? _message;
-
-  bool get _hasMore => _page < _numPages;
 
   @override
   void initState() {
     super.initState();
-    _resultsScrollController.addListener(_onResultsScroll);
     unawaited(_loadOwned());
   }
 
   @override
   void dispose() {
-    _resultsScrollController.removeListener(_onResultsScroll);
     _resultsScrollController.dispose();
     _queryController.dispose();
+    _pageInputController.dispose();
     super.dispose();
-  }
-
-  void _onResultsScroll() {
-    if (!_resultsScrollController.hasClients) {
-      return;
-    }
-    final position = _resultsScrollController.position;
-    if (position.pixels >= position.maxScrollExtent - 200) {
-      unawaited(_loadMore());
-    }
   }
 
   Future<void> _loadOwned() async {
@@ -124,10 +112,15 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
         return;
       }
       setState(() {
-        _results.addAll(result.results);
+        _results
+          ..clear()
+          ..addAll(result.results);
         _total = result.total;
         _numPages = result.numPages;
+        _page = 1;
+        _pageInputController.text = '1';
       });
+      _scrollToTop();
     } catch (error) {
       if (!mounted) {
         return;
@@ -140,38 +133,52 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
     }
   }
 
-  Future<void> _loadMore() async {
+  Future<void> _goToPage(int page) async {
     final query = _queryController.text.trim();
-    if (query.isEmpty || _isLoadingMore || !_hasMore) {
+    if (query.isEmpty || _isSearching) {
       return;
     }
+    final clamped = page.clamp(1, _numPages > 0 ? _numPages : 1);
 
-    final nextPage = _page + 1;
     setState(() {
-      _isLoadingMore = true;
+      _isSearching = true;
       _message = null;
+      _selectedIds.clear();
     });
 
     try {
-      final result = await _fetchPage(query, nextPage, _selectedSort);
+      final result = await _fetchPage(query, clamped, _selectedSort);
       if (!mounted) {
         return;
       }
       setState(() {
-        _page = nextPage;
-        _results.addAll(result.results);
+        _results
+          ..clear()
+          ..addAll(result.results);
         _total = result.total;
         _numPages = result.numPages;
+        _page = clamped;
+        _pageInputController.text = clamped.toString();
       });
+      _scrollToTop();
     } catch (error) {
       if (!mounted) {
         return;
       }
-      setState(() => _message = _cleanError(error));
+      setState(() {
+        _message = _cleanError(error);
+        _pageInputController.text = _page.toString();
+      });
     } finally {
       if (mounted) {
-        setState(() => _isLoadingMore = false);
+        setState(() => _isSearching = false);
       }
+    }
+  }
+
+  void _scrollToTop() {
+    if (_resultsScrollController.hasClients) {
+      _resultsScrollController.jumpTo(0);
     }
   }
 
@@ -375,20 +382,8 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
                     mainAxisSpacing: 2,
                     childAspectRatio: 3 / 4,
                   ),
-                  itemCount: _results.length + (_isLoadingMore ? 1 : 0),
+                  itemCount: _results.length,
                   itemBuilder: (context, index) {
-                    if (index >= _results.length) {
-                      return const Center(
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            color: Color(0xFF00E5FF),
-                            strokeWidth: 1.5,
-                          ),
-                        ),
-                      );
-                    }
                     final item = _results[index];
                     return _ResultCard(
                       item: item,
@@ -407,7 +402,163 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
                   ),
                 ),
         ),
+        if (hasResults && _numPages > 1)
+          _PaginationBar(
+            currentPage: _page,
+            numPages: _numPages,
+            isLoading: _isSearching,
+            pageInputController: _pageInputController,
+            onPrev: _page > 1 ? () => _goToPage(_page - 1) : null,
+            onNext: _page < _numPages ? () => _goToPage(_page + 1) : null,
+            onJump: (page) => _goToPage(page),
+          ),
       ],
+    );
+  }
+}
+
+class _PaginationBar extends StatelessWidget {
+  const _PaginationBar({
+    required this.currentPage,
+    required this.numPages,
+    required this.isLoading,
+    required this.pageInputController,
+    required this.onPrev,
+    required this.onNext,
+    required this.onJump,
+  });
+
+  final int currentPage;
+  final int numPages;
+  final bool isLoading;
+  final TextEditingController pageInputController;
+  final VoidCallback? onPrev;
+  final VoidCallback? onNext;
+  final ValueChanged<int> onJump;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Prev arrow
+          _PaginationArrow(
+            icon: Icons.chevron_left,
+            enabled: onPrev != null && !isLoading,
+            onTap: onPrev,
+          ),
+          const SizedBox(width: 6),
+          // Page number input
+          SizedBox(
+            width: 40,
+            height: 26,
+            child: TextField(
+              controller: pageInputController,
+              enabled: !isLoading,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppTheme.textPrimary,
+                fontWeight: FontWeight.w500,
+              ),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              textInputAction: TextInputAction.go,
+              onSubmitted: (value) {
+                final page = int.tryParse(value);
+                if (page != null && page >= 1) {
+                  onJump(page);
+                } else {
+                  pageInputController.text = currentPage.toString();
+                }
+              },
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: const Color(0xFF111014),
+                contentPadding: EdgeInsets.zero,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.zero,
+                  borderSide: BorderSide(
+                    color: AppTheme.textMuted.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.zero,
+                  borderSide: BorderSide(
+                    color: AppTheme.textMuted.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderRadius: BorderRadius.zero,
+                  borderSide: BorderSide(
+                    color: Color(0xFF00E5FF),
+                    width: 1,
+                  ),
+                ),
+                disabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.zero,
+                  borderSide: BorderSide(
+                    color: AppTheme.textMuted.withOpacity(0.15),
+                    width: 1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          // "of X" label
+          Text(
+            'of $numPages',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: AppTheme.textMuted,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          const SizedBox(width: 6),
+          // Next arrow
+          _PaginationArrow(
+            icon: Icons.chevron_right,
+            enabled: onNext != null && !isLoading,
+            onTap: onNext,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaginationArrow extends StatelessWidget {
+  const _PaginationArrow({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: Icon(
+            icon,
+            size: 20,
+            color: enabled ? const Color(0xFF00E5FF) : AppTheme.textMuted.withOpacity(0.35),
+          ),
+        ),
+      ),
     );
   }
 }
