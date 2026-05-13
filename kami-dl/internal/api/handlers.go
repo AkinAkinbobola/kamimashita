@@ -18,14 +18,15 @@ var numericIDPattern = regexp.MustCompile(`^\d+$`)
 
 type Handlers struct {
 	manager *downloader.Manager
+	logs    func() []string
 }
 
 type queueRequest struct {
 	IDs []string `json:"ids"`
 }
 
-func NewHandlers(manager *downloader.Manager) *Handlers {
-	return &Handlers{manager: manager}
+func NewHandlers(manager *downloader.Manager, logs func() []string) *Handlers {
+	return &Handlers{manager: manager, logs: logs}
 }
 
 func (h *Handlers) Queue(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +70,14 @@ func (h *Handlers) Status(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) Jobs(w http.ResponseWriter, r *http.Request) {
 	jobs := h.manager.ListJobs()
 	writeJSON(w, http.StatusOK, jobs)
+}
+
+func (h *Handlers) Logs(w http.ResponseWriter, r *http.Request) {
+	if h.logs == nil {
+		writeJSON(w, http.StatusOK, []string{})
+		return
+	}
+	writeJSON(w, http.StatusOK, h.logs())
 }
 
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {

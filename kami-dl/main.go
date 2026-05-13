@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,7 +23,62 @@ import (
 
 const port = 8765
 
+var recentLogs = newLogRingBuffer(200)
+
+type logRingBuffer struct {
+	mu    sync.Mutex
+	lines []string
+	next  int
+	count int
+}
+
+func newLogRingBuffer(size int) *logRingBuffer {
+	return &logRingBuffer{lines: make([]string, size)}
+}
+
+func (b *logRingBuffer) Add(line string) {
+	line = strings.TrimRight(line, "\r\n")
+	if line == "" {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.lines[b.next] = line
+	b.next = (b.next + 1) % len(b.lines)
+	if b.count < len(b.lines) {
+		b.count++
+	}
+}
+
+func (b *logRingBuffer) Lines() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	lines := make([]string, 0, b.count)
+	start := (b.next - b.count + len(b.lines)) % len(b.lines)
+	for i := 0; i < b.count; i++ {
+		lines = append(lines, b.lines[(start+i)%len(b.lines)])
+	}
+	return lines
+}
+
+type ringLogWriter struct {
+	buffer *logRingBuffer
+}
+
+func (w ringLogWriter) Write(p []byte) (int, error) {
+	written, err := os.Stderr.Write(p)
+	for _, line := range strings.Split(string(p), "\n") {
+		w.buffer.Add(line)
+	}
+	return written, err
+}
+
 func main() {
+	log.SetOutput(ringLogWriter{buffer: recentLogs})
+
 	output := flag.String("output", "", "Path to the LRR watch folder")
 	apiKey := flag.String("api-key", "", "nhentai API key")
 	flag.Parse()
@@ -44,7 +101,7 @@ func main() {
 	defer cancelRuntime()
 	manager.Start(runtimeCtx)
 
-	handlers := api.NewHandlers(manager)
+	handlers := api.NewHandlers(manager, recentLogs.Lines)
 	router := api.NewRouter(handlers)
 
 	server := &http.Server{

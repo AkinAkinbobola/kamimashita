@@ -89,6 +89,8 @@ class _LibraryHistoryEntry {
   );
 }
 
+enum _SettingsContextMenuAction { settings, logs }
+
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with WindowListener {
   static const _focusRevalidateDebounce = Duration(milliseconds: 500);
@@ -2531,6 +2533,59 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     );
   }
 
+  Future<void> _showSettingsContextMenu(Offset position) async {
+    final overlay = Overlay.of(context).context.findRenderObject();
+    final overlayBox = overlay is RenderBox ? overlay : null;
+    if (overlayBox == null) {
+      return;
+    }
+
+    final action = await showMenu<_SettingsContextMenuAction>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        overlayBox.size.width - position.dx,
+        overlayBox.size.height - position.dy,
+      ),
+      color: const Color(0xFF1A1A1A),
+      elevation: 0,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      items: const [
+        PopupMenuItem<_SettingsContextMenuAction>(
+          value: _SettingsContextMenuAction.settings,
+          height: 34,
+          padding: EdgeInsets.zero,
+          mouseCursor: SystemMouseCursors.click,
+          child: _SettingsContextMenuItem(label: 'Settings'),
+        ),
+        PopupMenuItem<_SettingsContextMenuAction>(
+          value: _SettingsContextMenuAction.logs,
+          height: 34,
+          padding: EdgeInsets.zero,
+          mouseCursor: SystemMouseCursors.click,
+          child: _SettingsContextMenuItem(label: 'View logs'),
+        ),
+      ],
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    switch (action) {
+      case _SettingsContextMenuAction.settings:
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+      case _SettingsContextMenuAction.logs:
+        await showDialog<void>(
+          context: context,
+          builder: (_) => const _DownloaderLogsDialog(),
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = SettingsModel.instance;
@@ -2591,6 +2646,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           onToggleDownloadPanel: _toggleDownloadPanel,
           isDownloadPanelOpen: _isDownloadPanelOpen,
           onOpenSettings: openSettings,
+          onOpenSettingsContextMenu: _showSettingsContextMenu,
           onOpenSidebarMenu: () => _scaffoldKey.currentState?.openDrawer(),
         ),
       ),
@@ -4955,6 +5011,196 @@ class _DownloadPanelActionButton extends StatelessWidget {
   }
 }
 
+class _SettingsContextMenuItem extends StatefulWidget {
+  const _SettingsContextMenuItem({required this.label});
+
+  final String label;
+
+  @override
+  State<_SettingsContextMenuItem> createState() =>
+      _SettingsContextMenuItemState();
+}
+
+class _SettingsContextMenuItemState extends State<_SettingsContextMenuItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Container(
+        width: 130,
+        height: 34,
+        color: _hovered ? const Color(0xFF49D7E8) : const Color(0xFF1A1A1A),
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Text(
+          widget.label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DownloaderLogsDialog extends StatefulWidget {
+  const _DownloaderLogsDialog();
+
+  @override
+  State<_DownloaderLogsDialog> createState() => _DownloaderLogsDialogState();
+}
+
+class _DownloaderLogsDialogState extends State<_DownloaderLogsDialog> {
+  final Dio _dio = Dio(
+    BaseOptions(
+      baseUrl: 'http://127.0.0.1:8765',
+      connectTimeout: const Duration(seconds: 2),
+      receiveTimeout: const Duration(seconds: 2),
+      sendTimeout: const Duration(seconds: 2),
+      headers: const {'Content-Type': 'application/json'},
+    ),
+  );
+  final ScrollController _scrollController = ScrollController();
+  Timer? _pollTimer;
+  List<String> _logs = const [];
+  bool _isReachable = true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refreshLogs());
+    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      unawaited(_refreshLogs());
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshLogs() async {
+    try {
+      final response = await _dio.get<Object>('/logs');
+      final logs = _decodeLogLines(response.data);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _logs = logs;
+        _isReachable = true;
+      });
+      _scrollToBottom();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isReachable = false;
+      });
+    }
+  }
+
+  List<String> _decodeLogLines(Object? data) {
+    if (data is List) {
+      return data.map((entry) => entry.toString()).toList(growable: false);
+    }
+    if (data is String) {
+      final decoded = jsonDecode(data);
+      if (decoded is List) {
+        return decoded.map((entry) => entry.toString()).toList(growable: false);
+      }
+    }
+    return const [];
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) {
+        return;
+      }
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 700, maxHeight: 500),
+          child: Container(
+            color: const Color(0xFF1A1A1A),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 10, 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Logs',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const Spacer(),
+                      _TopBarIconButton(
+                        icon: Icons.close,
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, thickness: 0.5, color: AppTheme.border),
+                Expanded(
+                  child: !_isReachable
+                      ? Center(
+                          child: Text(
+                            'Downloader not running',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: AppTheme.textMuted),
+                          ),
+                        )
+                      : _Scrollbarless(
+                          child: ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                            itemCount: _logs.length,
+                            itemBuilder: (context, index) {
+                              return Text(
+                                _logs[index],
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  height: 1.35,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.onRefresh,
@@ -4962,6 +5208,7 @@ class _TopBar extends StatelessWidget {
     required this.onToggleDownloadPanel,
     required this.isDownloadPanelOpen,
     required this.onOpenSettings,
+    required this.onOpenSettingsContextMenu,
     this.onOpenSidebarMenu,
   });
 
@@ -4970,6 +5217,7 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onToggleDownloadPanel;
   final bool isDownloadPanelOpen;
   final VoidCallback onOpenSettings;
+  final ValueChanged<Offset> onOpenSettingsContextMenu;
   final VoidCallback? onOpenSidebarMenu;
 
   @override
@@ -5013,9 +5261,14 @@ class _TopBar extends StatelessWidget {
                       isActive: isDownloadPanelOpen,
                     ),
                     const SizedBox(width: 8),
-                    _TopBarIconButton(
-                      icon: Icons.settings,
-                      onPressed: onOpenSettings,
+                    GestureDetector(
+                      onSecondaryTapUp: (details) =>
+                          onOpenSettingsContextMenu(details.globalPosition),
+                      behavior: HitTestBehavior.opaque,
+                      child: _TopBarIconButton(
+                        icon: Icons.settings,
+                        onPressed: onOpenSettings,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     const WindowControls(),

@@ -27,6 +27,7 @@ func NewRouter(handlers *Handlers) http.Handler {
 	r.Delete("/jobs", handlers.ClearFinishedJobs)
 	r.Get("/status", handlers.Status)
 	r.Get("/progress", handlers.Progress)
+	r.Get("/logs", handlers.Logs)
 	r.Options("/*", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
