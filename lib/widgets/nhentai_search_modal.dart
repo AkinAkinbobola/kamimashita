@@ -33,6 +33,7 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
     ),
   );
   final TextEditingController _queryController = TextEditingController();
+  final ScrollController _resultsScrollController = ScrollController();
   final Set<String> _ownedIds = <String>{};
   final Set<String> _selectedIds = <String>{};
   final List<_NhentaiSearchItem> _results = <_NhentaiSearchItem>[];
@@ -52,13 +53,26 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
   @override
   void initState() {
     super.initState();
+    _resultsScrollController.addListener(_onResultsScroll);
     unawaited(_loadOwned());
   }
 
   @override
   void dispose() {
+    _resultsScrollController.removeListener(_onResultsScroll);
+    _resultsScrollController.dispose();
     _queryController.dispose();
     super.dispose();
+  }
+
+  void _onResultsScroll() {
+    if (!_resultsScrollController.hasClients) {
+      return;
+    }
+    final position = _resultsScrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 200) {
+      unawaited(_loadMore());
+    }
   }
 
   Future<void> _loadOwned() async {
@@ -353,15 +367,28 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
         Expanded(
           child: hasResults
               ? GridView.builder(
+                  controller: _resultsScrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 14,
-                    childAspectRatio: 0.58,
+                    crossAxisCount: 5,
+                    crossAxisSpacing: 2,
+                    mainAxisSpacing: 2,
+                    childAspectRatio: 3 / 4,
                   ),
-                  itemCount: _results.length,
+                  itemCount: _results.length + (_isLoadingMore ? 1 : 0),
                   itemBuilder: (context, index) {
+                    if (index >= _results.length) {
+                      return const Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            color: Color(0xFF00E5FF),
+                            strokeWidth: 1.5,
+                          ),
+                        ),
+                      );
+                    }
                     final item = _results[index];
                     return _ResultCard(
                       item: item,
@@ -380,15 +407,6 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
                   ),
                 ),
         ),
-        if (_hasMore)
-          Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 2),
-            child: _TextActionButton(
-              label: _isLoadingMore ? 'Loading...' : 'Load more',
-              enabled: !_isLoadingMore,
-              onTap: _loadMore,
-            ),
-          ),
       ],
     );
   }
@@ -549,7 +567,6 @@ class _ResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final selectable = !isOwned;
 
     return MouseRegion(
@@ -560,79 +577,74 @@ class _ResultCard extends StatelessWidget {
         child: DecoratedBox(
           decoration: BoxDecoration(
             border: Border.all(
-              color: isSelected ? AppTheme.crimson : Colors.transparent,
-              width: 1,
+              color: isSelected ? const Color(0xFF00E5FF) : Colors.transparent,
+              width: 2,
             ),
           ),
           child: Stack(
+            fit: StackFit.expand,
             children: [
-              Opacity(
-                opacity: isOwned ? 0.4 : 1,
-                child: Padding(
-                  padding: const EdgeInsets.all(1),
+              Image.network(
+                item.thumbnailUrl,
+                fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
+                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                  if (wasSynchronouslyLoaded || frame != null) {
+                    return child;
+                  }
+                  return const ColoredBox(color: AppTheme.surfaceRaised);
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return const ColoredBox(color: AppTheme.surfaceRaised);
+                },
+              ),
+              if (isOwned) const ColoredBox(color: Colors.black45),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  color: Colors.black.withOpacity(0.75),
+                  padding: const EdgeInsets.fromLTRB(5, 4, 5, 4),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ColoredBox(
-                              color: AppTheme.surfaceRaised,
-                              child: Image.network(
-                                item.thumbnailUrl,
-                                fit: BoxFit.cover,
-                                alignment: Alignment.topCenter,
-                                frameBuilder:
-                                    (
-                                      context,
-                                      child,
-                                      frame,
-                                      wasSynchronouslyLoaded,
-                                    ) {
-                                      if (wasSynchronouslyLoaded ||
-                                          frame != null) {
-                                        return child;
-                                      }
-                                      return const ColoredBox(
-                                        color: AppTheme.surfaceRaised,
-                                      );
-                                    },
-                                errorBuilder: (context, error, stackTrace) {
-                                  return const ColoredBox(
-                                    color: AppTheme.surfaceRaised,
-                                  );
-                                },
-                              ),
-                            ),
-                            Positioned(
-                              right: 6,
-                              bottom: 6,
-                              child: _PageBadge(pageCount: item.numPages),
-                            ),
+                      Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          height: 1.1,
+                          shadows: [
+                            Shadow(color: Colors.black, blurRadius: 4),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 7),
+                      const SizedBox(height: 2),
                       Text(
-                        item.title,
-                        maxLines: 2,
+                        '${item.numPages}p',
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          height: 1.15,
+                        style: const TextStyle(
+                          color: Color(0xFFAAAAAA),
+                          fontSize: 10,
+                          height: 1.1,
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              if (isOwned || isSelected)
+              if (isOwned)
+                const Positioned(top: 5, right: 5, child: _OwnedBadge()),
+              if (isSelected)
                 const Positioned(
-                  top: 9,
-                  right: 9,
-                  child: _CheckBadge(),
+                  top: 5,
+                  left: 5,
+                  child: _SelectedBadge(),
                 ),
             ],
           ),
@@ -642,48 +654,43 @@ class _ResultCard extends StatelessWidget {
   }
 }
 
-class _CheckBadge extends StatelessWidget {
-  const _CheckBadge();
+class _OwnedBadge extends StatelessWidget {
+  const _OwnedBadge();
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xD9101217),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppTheme.border, width: 0.5),
+        color: Colors.black54,
+        border: Border.all(color: const Color(0xFF00E5FF), width: 1),
       ),
       child: const Padding(
-        padding: EdgeInsets.all(5),
-        child: Icon(Icons.check, size: 12, color: AppTheme.crimson),
+        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Text(
+          'Owned',
+          style: TextStyle(
+            color: Color(0xFF00E5FF),
+            fontSize: 9,
+            fontWeight: FontWeight.w600,
+            height: 1,
+          ),
+        ),
       ),
     );
   }
 }
 
-class _PageBadge extends StatelessWidget {
-  const _PageBadge({required this.pageCount});
-
-  final int pageCount;
+class _SelectedBadge extends StatelessWidget {
+  const _SelectedBadge();
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xFF000000),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        child: Text(
-          '${pageCount}p',
-          style: const TextStyle(
-            color: AppTheme.crimson,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            height: 1,
-          ),
-        ),
+    return const SizedBox(
+      width: 16,
+      height: 16,
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: Color(0xFF00E5FF)),
+        child: Icon(Icons.check, size: 12, color: Colors.black),
       ),
     );
   }

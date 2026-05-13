@@ -4555,54 +4555,40 @@ class _DownloadPanelState extends State<_DownloadPanel> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 14, 8, 10),
-                child: Column(
+                padding: const EdgeInsets.fromLTRB(12, 12, 8, 10),
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        Text(
-                          'Download',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: AppTheme.textPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const Spacer(),
-                        _TopBarIconButton(
-                          icon: Icons.close,
-                          onPressed: widget.onClose,
-                        ),
-                      ],
+                    const Text(
+                      'Download',
+                      style: TextStyle(
+                        color: Color(0xFFE0E0E0),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        _DownloadPanelHeaderIconButton(
-                          icon: Icons.search,
-                          onPressed: () {
-                            showDialog<void>(
-                              context: context,
-                              builder: (_) => const NhentaiSearchModal(),
-                            );
-                          },
-                        ),
-                        const Spacer(),
-                        if (hasClearableJobs)
-                          _DownloadPanelHeaderTextButton(
-                            label: widget.isClearingFinished
-                                ? 'Clearing...'
-                                : 'Clear finished',
-                            onPressed: widget.isClearingFinished
-                                ? null
-                                : widget.onClearFinished,
-                          ),
-                      ],
+                    const Spacer(),
+                    _DownloadPanelHeaderIconButton(
+                      icon: Icons.search,
+                      onPressed: () {
+                        showDialog<void>(
+                          context: context,
+                          builder: (_) => const NhentaiSearchModal(),
+                        );
+                      },
                     ),
-                    const SizedBox(height: 8),
-                    const Divider(
-                      height: 1,
-                      thickness: 0.5,
-                      color: AppTheme.border,
+                    if (hasClearableJobs) ...[
+                      const SizedBox(width: 10),
+                      _DownloadPanelHeaderTextButton(
+                        label: 'Clear',
+                        onPressed: widget.isClearingFinished
+                            ? null
+                            : widget.onClearFinished,
+                      ),
+                    ],
+                    const SizedBox(width: 10),
+                    _TopBarIconButton(
+                      icon: Icons.close,
+                      onPressed: widget.onClose,
                     ),
                   ],
                 ),
@@ -4611,55 +4597,52 @@ class _DownloadPanelState extends State<_DownloadPanel> {
                 child: Container(
                   color: const Color(0xFF141417),
                   width: double.infinity,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    child: widget.isLoading
-                        ? const Center(
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          )
-                        : !widget.isReachable
-                        ? Center(
-                            child: Text(
-                              'Downloader not running',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: AppTheme.textMuted,
-                              ),
-                            ),
-                          )
-                        : jobs.isEmpty
-                        ? Center(
-                            child: Text(
-                              'No queued downloads',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: AppTheme.textMuted,
-                              ),
-                            ),
-                          )
-                        : _Scrollbarless(
-                            child: ListView(
-                              padding: EdgeInsets.zero,
-                              children: [
-                                for (final job in visibleJobs)
-                                  _DownloadQueueJobTile(job: job),
-                                if (alreadyOwnedJobs.isNotEmpty)
-                                  _AlreadyOwnedDownloadGroup(
-                                    jobs: alreadyOwnedJobs,
-                                    expanded: _showAlreadyOwned,
-                                    onToggle: () => setState(
-                                      () => _showAlreadyOwned =
-                                          !_showAlreadyOwned,
-                                    ),
-                                  ),
-                              ],
+                  child: widget.isLoading
+                      ? const Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : !widget.isReachable
+                      ? Center(
+                          child: Text(
+                            'Downloader not running',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: AppTheme.textMuted,
                             ),
                           ),
-                  ),
+                        )
+                      : jobs.isEmpty
+                      ? Center(
+                          child: Text(
+                            'No queued downloads',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: AppTheme.textMuted,
+                            ),
+                          ),
+                        )
+                      : _Scrollbarless(
+                          child: ListView(
+                            padding: EdgeInsets.zero,
+                            children: [
+                              for (final job in visibleJobs)
+                                _DownloadQueueJobTile(job: job),
+                              if (alreadyOwnedJobs.isNotEmpty)
+                                _AlreadyOwnedDownloadGroup(
+                                  jobs: alreadyOwnedJobs,
+                                  expanded: _showAlreadyOwned,
+                                  onToggle: () => setState(
+                                    () =>
+                                        _showAlreadyOwned = !_showAlreadyOwned,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                 ),
               ),
               Padding(
@@ -4699,73 +4682,44 @@ class _DownloadQueueJobTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    const cyan = Color(0xFF49D7E8);
-    const failedColor = Color(0xFFB56A72);
-    final isDownloading = job.normalizedStatus == 'downloading';
-    final trailing = switch (job.normalizedStatus) {
+    const cyan = Color(0xFF00E5FF);
+    const mutedRed = Color(0xFF8A555C);
+    final isComplete = job.normalizedStatus == 'done';
+    final indicator = switch (job.normalizedStatus) {
       'downloading' => const SizedBox(
-        width: 10,
-        height: 10,
+        width: 14,
+        height: 14,
         child: CircularProgressIndicator(
-          strokeWidth: 1.4,
+          strokeWidth: 1.5,
           valueColor: AlwaysStoppedAnimation<Color>(cyan),
         ),
       ),
-      'done' => const Icon(Icons.check, size: 14, color: cyan),
-      'failed' => const Icon(Icons.close, size: 14, color: failedColor),
-      'duplicate' || 'already owned' => Text(
-        'Already owned',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: AppTheme.textMuted,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      'pending' => Text(
-        'Waiting',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: AppTheme.textMuted,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      _ => Text(
-        job.status.trim().isEmpty ? 'Waiting' : job.status,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: AppTheme.textMuted,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
+      'done' => const Icon(Icons.check, size: 13, color: cyan),
+      'failed' => const Icon(Icons.close, size: 13, color: mutedRed),
+      _ => const SizedBox(width: 14, height: 14),
     };
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: isDownloading ? cyan : AppTheme.border.withValues(alpha: 0.5),
-            width: 1,
-          ),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Text(
-                job.displayTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w500,
-                ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(width: 14, height: 14, child: Center(child: indicator)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              job.displayTitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isComplete
+                    ? const Color(0xFF666666)
+                    : const Color(0xFFCCCCCC),
+                fontSize: 12,
               ),
             ),
-            const SizedBox(width: 8),
-            trailing,
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -4848,8 +4802,8 @@ class _DownloadPanelHeaderTextButtonState
   Widget build(BuildContext context) {
     final isEnabled = widget.onPressed != null;
     final color = !isEnabled
-        ? AppTheme.textMuted.withValues(alpha: 0.45)
-        : (_hovered ? AppTheme.textPrimary : AppTheme.textMuted);
+        ? const Color(0xFF888888).withValues(alpha: 0.45)
+        : (_hovered ? const Color(0xFFE0E0E0) : const Color(0xFF888888));
 
     return MouseRegion(
       cursor: isEnabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
@@ -4862,8 +4816,9 @@ class _DownloadPanelHeaderTextButtonState
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
           child: Text(
             widget.label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            style: TextStyle(
               color: color,
+              fontSize: 11,
               fontWeight: FontWeight.w500,
             ),
           ),
