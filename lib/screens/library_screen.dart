@@ -15,6 +15,7 @@ import '../providers/library_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/app_strings.dart';
 import '../widgets/cover_card.dart';
+import '../widgets/nhentai_search_modal.dart';
 import '../widgets/theme.dart';
 import '../widgets/window_controls.dart';
 import 'reader_screen.dart';
@@ -4581,6 +4582,16 @@ class _DownloadPanelState extends State<_DownloadPanel> {
                       ),
                     ),
                     const Spacer(),
+                    _DownloadPanelHeaderIconButton(
+                      icon: Icons.search,
+                      onPressed: () {
+                        showDialog<void>(
+                          context: context,
+                          builder: (_) => const NhentaiSearchModal(),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
                     if (hasClearableJobs) ...[
                       _DownloadPanelHeaderTextButton(
                         label: widget.isClearingFinished
@@ -4909,6 +4920,47 @@ class _DownloadPanelHeaderTextButtonState
               color: color,
               fontWeight: FontWeight.w500,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DownloadPanelHeaderIconButton extends StatefulWidget {
+  const _DownloadPanelHeaderIconButton({
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  State<_DownloadPanelHeaderIconButton> createState() =>
+      _DownloadPanelHeaderIconButtonState();
+}
+
+class _DownloadPanelHeaderIconButtonState
+    extends State<_DownloadPanelHeaderIconButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: Icon(
+            widget.icon,
+            size: 17,
+            color: _hovered ? Colors.white : AppTheme.textMuted,
           ),
         ),
       ),
