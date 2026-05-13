@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 
 const (
 	APIBase                = "https://nhentai.net/api/v2"
+	ThumbnailBase          = "https://t.nhentai.net"
 	UserAgent              = "kami-dl/1.0 (github.com/AkinAkinbobola/kamimashita)"
 	MaxRetries             = 3
 	BackoffBase            = 2.0
@@ -38,6 +40,38 @@ var (
 		"https://i7.nhentai.net",
 	}
 )
+
+type searchAPIResponse struct {
+	Results []searchAPIItem `json:"results"`
+	Result  []searchAPIItem `json:"result"`
+	Total   int             `json:"total"`
+	PerPage int             `json:"per_page"`
+}
+
+type searchAPIItem struct {
+	ID            int           `json:"id"`
+	EnglishTitle  string        `json:"english_title"`
+	JapaneseTitle string        `json:"japanese_title"`
+	Thumbnail     thumbnailPath `json:"thumbnail"`
+	NumPages      int           `json:"num_pages"`
+}
+
+type thumbnailPath string
+
+func (p *thumbnailPath) UnmarshalJSON(data []byte) error {
+	var path string
+	if err := json.Unmarshal(data, &path); err == nil {
+		*p = thumbnailPath(path)
+		return nil
+	}
+
+	var image Image
+	if err := json.Unmarshal(data, &image); err != nil {
+		return err
+	}
+	*p = thumbnailPath(image.Path)
+	return nil
+}
 
 type Client struct {
 	http   *http.Client
@@ -124,6 +158,96 @@ func (c *Client) FetchGallery(ctx context.Context, id string) (*Gallery, error) 
 	}
 
 	return nil, ErrMaxRetriesReached
+}
+
+func (c *Client) SearchGalleries(ctx context.Context, query string, page int) (*SearchResult, error) {
+	requestCtx, cancel := context.WithTimeout(contextOrBackground(ctx), MetadataRequestTimeout)
+	defer cancel()
+
+	if page < 1 {
+		page = 1
+	}
+	params := url.Values{}
+	params.Set("query", query)
+	params.Set("sort", "popular")
+	params.Set("page", strconv.Itoa(page))
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, APIBase+"/search?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	c.setRequestHeaders(req)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if len(body) > 0 {
+			return nil, fmt.Errorf("api returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		return nil, fmt.Errorf("api returned status %d", resp.StatusCode)
+	}
+
+	var payload searchAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	items := payload.Results
+	if len(items) == 0 && len(payload.Result) > 0 {
+		items = payload.Result
+	}
+
+	result := &SearchResult{
+		Results: make([]SearchItem, 0, len(items)),
+		Total:   payload.Total,
+		PerPage: payload.PerPage,
+	}
+	for _, item := range items {
+		title := strings.TrimSpace(item.EnglishTitle)
+		if title == "" {
+			title = strings.TrimSpace(item.JapaneseTitle)
+		}
+		result.Results = append(result.Results, SearchItem{
+			ID:        item.ID,
+			Title:     title,
+			Thumbnail: string(item.Thumbnail),
+			NumPages:  item.NumPages,
+		})
+	}
+
+	return result, nil
+}
+
+func (c *Client) FetchThumbnail(ctx context.Context, path string) ([]byte, string, error) {
+	requestCtx, cancel := context.WithTimeout(contextOrBackground(ctx), PageDownloadTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, ThumbnailBase+normalizePagePath(path), nil)
+	if err != nil {
+		return nil, "", err
+	}
+	c.setRequestHeaders(req)
+	req.Header.Set("Referer", "https://nhentai.net/")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("thumbnail returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+	return body, resp.Header.Get("Content-Type"), nil
 }
 
 func (c *Client) DownloadPage(ctx context.Context, path string, destPath string) error {

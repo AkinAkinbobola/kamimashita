@@ -44,3 +44,16 @@ type Image struct {
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
 }
+
+type SearchResult struct {
+	Results []SearchItem `json:"results"`
+	Total   int          `json:"total"`
+	PerPage int          `json:"per_page"`
+}
+
+type SearchItem struct {
+	ID        int    `json:"id"`
+	Title     string `json:"title"`
+	Thumbnail string `json:"thumbnail"`
+	NumPages  int    `json:"num_pages"`
+}

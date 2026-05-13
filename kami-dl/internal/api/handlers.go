@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AkinAkinbobola/kamimashita/kami-dl/internal/downloader"
@@ -67,6 +69,55 @@ func (h *Handlers) Status(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) Jobs(w http.ResponseWriter, r *http.Request) {
 	jobs := h.manager.ListJobs()
 	writeJSON(w, http.StatusOK, jobs)
+}
+
+func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("query"))
+	if query == "" {
+		http.Error(w, "query is required", http.StatusBadRequest)
+		return
+	}
+
+	page := 1
+	if rawPage := strings.TrimSpace(r.URL.Query().Get("page")); rawPage != "" {
+		parsed, err := strconv.Atoi(rawPage)
+		if err != nil || parsed < 1 {
+			http.Error(w, "page must be a positive integer", http.StatusBadRequest)
+			return
+		}
+		page = parsed
+	}
+
+	result, err := h.manager.SearchGalleries(r.Context(), query, page)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handlers) Thumbnail(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	if path == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+
+	body, contentType, err := h.manager.FetchThumbnail(r.Context(), path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
+func (h *Handlers) Owned(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.manager.ListOwned())
 }
 
 func (h *Handlers) ClearFinishedJobs(w http.ResponseWriter, r *http.Request) {

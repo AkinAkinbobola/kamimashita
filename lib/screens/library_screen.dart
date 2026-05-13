@@ -4526,7 +4526,14 @@ class _DownloadPanel extends StatefulWidget {
 }
 
 class _DownloadPanelState extends State<_DownloadPanel> {
+  final ScrollController _inputScrollController = ScrollController();
   bool _showAlreadyOwned = false;
+
+  @override
+  void dispose() {
+    _inputScrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4595,9 +4602,13 @@ class _DownloadPanelState extends State<_DownloadPanel> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 80),
+                  constraints: const BoxConstraints(
+                    minHeight: 80,
+                    maxHeight: 120,
+                  ),
                   child: TextField(
                     controller: widget.inputController,
+                    scrollController: _inputScrollController,
                     minLines: 4,
                     maxLines: null,
                     style: theme.textTheme.bodyMedium?.copyWith(

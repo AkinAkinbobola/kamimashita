@@ -210,6 +210,29 @@ func (m *Manager) ListJobs() []models.Job {
 	return jobs
 }
 
+func (m *Manager) ListOwned() []string {
+	m.stateMu.RLock()
+	defer m.stateMu.RUnlock()
+
+	ids := make([]string, 0, len(m.jobs))
+	for id, job := range m.jobs {
+		if job.Status == models.StatusDone || job.Status == models.StatusDuplicate {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+
+	return ids
+}
+
+func (m *Manager) SearchGalleries(ctx context.Context, query string, page int) (*nhentai.SearchResult, error) {
+	return m.client.SearchGalleries(ctx, query, page)
+}
+
+func (m *Manager) FetchThumbnail(ctx context.Context, path string) ([]byte, string, error) {
+	return m.client.FetchThumbnail(ctx, path)
+}
+
 func (m *Manager) ClearFinished() int {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
