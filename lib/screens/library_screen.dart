@@ -2749,17 +2749,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                     child: SizedBox(
                       width: _downloadPanelWidth,
                       child: _DownloadPanel(
-                        inputController: _downloadInputController,
                         jobs: _downloadJobs,
                         activeProgress: _downloadActiveProgress,
                         isLoading: _isLoadingDownloadStatus,
                         isReachable: _isDownloaderReachable,
-                        isAdding: _isQueueSubmitting,
                         isStarting: _isStartActionInFlight,
                         isPausing: _isPauseActionInFlight,
                         isClearingFinished: _isClearFinishedActionInFlight,
                         onClose: _closeDownloadPanel,
-                        onAdd: _addDownloadJobs,
                         onStart: _startDownloadQueue,
                         onPause: _pauseDownloadQueue,
                         onClearFinished: _clearFinishedDownloadJobs,
@@ -4491,33 +4488,27 @@ class _ArchiveRatingRow extends StatelessWidget {
 
 class _DownloadPanel extends StatefulWidget {
   const _DownloadPanel({
-    required this.inputController,
     required this.jobs,
     required this.activeProgress,
     required this.isLoading,
     required this.isReachable,
-    required this.isAdding,
     required this.isStarting,
     required this.isPausing,
     required this.isClearingFinished,
     required this.onClose,
-    required this.onAdd,
     required this.onStart,
     required this.onPause,
     required this.onClearFinished,
   });
 
-  final TextEditingController inputController;
   final List<_DownloadQueueJob> jobs;
   final _DownloadActiveProgress? activeProgress;
   final bool isLoading;
   final bool isReachable;
-  final bool isAdding;
   final bool isStarting;
   final bool isPausing;
   final bool isClearingFinished;
   final VoidCallback onClose;
-  final VoidCallback onAdd;
   final VoidCallback onStart;
   final VoidCallback onPause;
   final VoidCallback onClearFinished;
@@ -4527,14 +4518,7 @@ class _DownloadPanel extends StatefulWidget {
 }
 
 class _DownloadPanelState extends State<_DownloadPanel> {
-  final ScrollController _inputScrollController = ScrollController();
   bool _showAlreadyOwned = false;
-
-  @override
-  void dispose() {
-    _inputScrollController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -4571,92 +4555,56 @@ class _DownloadPanelState extends State<_DownloadPanel> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 10, 12),
-                child: Row(
+                padding: const EdgeInsets.fromLTRB(10, 14, 8, 10),
+                child: Column(
                   children: [
-                    Text(
-                      'Download',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: AppTheme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          'Download',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const Spacer(),
+                        _TopBarIconButton(
+                          icon: Icons.close,
+                          onPressed: widget.onClose,
+                        ),
+                      ],
                     ),
-                    const Spacer(),
-                    _DownloadPanelHeaderIconButton(
-                      icon: Icons.search,
-                      onPressed: () {
-                        showDialog<void>(
-                          context: context,
-                          builder: (_) => const NhentaiSearchModal(),
-                        );
-                      },
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        _DownloadPanelHeaderIconButton(
+                          icon: Icons.search,
+                          onPressed: () {
+                            showDialog<void>(
+                              context: context,
+                              builder: (_) => const NhentaiSearchModal(),
+                            );
+                          },
+                        ),
+                        const Spacer(),
+                        if (hasClearableJobs)
+                          _DownloadPanelHeaderTextButton(
+                            label: widget.isClearingFinished
+                                ? 'Clearing...'
+                                : 'Clear finished',
+                            onPressed: widget.isClearingFinished
+                                ? null
+                                : widget.onClearFinished,
+                          ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    if (hasClearableJobs) ...[
-                      _DownloadPanelHeaderTextButton(
-                        label: widget.isClearingFinished
-                            ? 'Clearing...'
-                            : 'Clear finished',
-                        onPressed: widget.isClearingFinished
-                            ? null
-                            : widget.onClearFinished,
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    _TopBarIconButton(
-                      icon: Icons.close,
-                      onPressed: widget.onClose,
+                    const SizedBox(height: 8),
+                    const Divider(
+                      height: 1,
+                      thickness: 0.5,
+                      color: AppTheme.border,
                     ),
                   ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    minHeight: 80,
-                    maxHeight: 120,
-                  ),
-                  child: TextField(
-                    controller: widget.inputController,
-                    scrollController: _inputScrollController,
-                    minLines: 4,
-                    maxLines: null,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.textPrimary,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'Paste IDs or URLs, one per line',
-                      hintStyle: theme.textTheme.bodySmall?.copyWith(
-                        color: AppTheme.textMuted,
-                      ),
-                      filled: true,
-                      fillColor: const Color(0xFF1A1A1A),
-                      contentPadding: const EdgeInsets.all(12),
-                      border: const UnderlineInputBorder(
-                        borderSide: BorderSide(color: Colors.transparent),
-                      ),
-                      enabledBorder: const UnderlineInputBorder(
-                        borderSide: BorderSide(color: Colors.transparent),
-                      ),
-                      focusedBorder: const UnderlineInputBorder(
-                        borderSide: BorderSide(
-                          color: Color(0xFF49D7E8),
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: _DownloadPanelActionButton(
-                    label: widget.isAdding ? 'Adding...' : 'Add',
-                    onPressed: widget.isAdding ? null : widget.onAdd,
-                  ),
                 ),
               ),
               Expanded(
@@ -4695,12 +4643,10 @@ class _DownloadPanelState extends State<_DownloadPanel> {
                           )
                         : _Scrollbarless(
                             child: ListView(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              padding: EdgeInsets.zero,
                               children: [
-                                for (final job in visibleJobs) ...[
+                                for (final job in visibleJobs)
                                   _DownloadQueueJobTile(job: job),
-                                  const SizedBox(height: 8),
-                                ],
                                 if (alreadyOwnedJobs.isNotEmpty)
                                   _AlreadyOwnedDownloadGroup(
                                     jobs: alreadyOwnedJobs,
@@ -4754,37 +4700,55 @@ class _DownloadQueueJobTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final statusLabel = switch (job.normalizedStatus) {
-      'done' => 'Done',
-      'failed' => 'Failed',
-      'duplicate' => 'Already owned',
-      'already owned' => 'Already owned',
-      'pending' => 'Waiting',
-      'downloading' => 'Downloading',
-      _ => job.status.trim().isEmpty ? 'Waiting' : job.status,
-    };
-    final statusColor = switch (job.normalizedStatus) {
-      'done' => const Color(0xFF49D7E8),
-      'failed' => const Color(0xFFB56A72),
-      'duplicate' || 'already owned' || 'pending' => AppTheme.textMuted,
-      'downloading' => const Color(0xFF49D7E8),
-      _ => AppTheme.textSecondary,
-    };
+    const cyan = Color(0xFF49D7E8);
+    const failedColor = Color(0xFFB56A72);
+    final isDownloading = job.normalizedStatus == 'downloading';
     final trailing = switch (job.normalizedStatus) {
-      'done' => Icon(Icons.check, size: 14, color: statusColor),
-      _ => Text(
-        statusLabel,
+      'downloading' => const SizedBox(
+        width: 10,
+        height: 10,
+        child: CircularProgressIndicator(
+          strokeWidth: 1.4,
+          valueColor: AlwaysStoppedAnimation<Color>(cyan),
+        ),
+      ),
+      'done' => const Icon(Icons.check, size: 14, color: cyan),
+      'failed' => const Icon(Icons.close, size: 14, color: failedColor),
+      'duplicate' || 'already owned' => Text(
+        'Already owned',
         style: theme.textTheme.bodySmall?.copyWith(
-          color: statusColor,
+          color: AppTheme.textMuted,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      'pending' => Text(
+        'Waiting',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: AppTheme.textMuted,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      _ => Text(
+        job.status.trim().isEmpty ? 'Waiting' : job.status,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: AppTheme.textMuted,
           fontWeight: FontWeight.w500,
         ),
       ),
     };
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: isDownloading ? cyan : AppTheme.border.withValues(alpha: 0.5),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
@@ -4793,9 +4757,7 @@ class _DownloadQueueJobTile extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: job.title.trim().isEmpty
-                      ? AppTheme.textMuted
-                      : AppTheme.textPrimary,
+                  color: Colors.white,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -4804,20 +4766,7 @@ class _DownloadQueueJobTile extends StatelessWidget {
             trailing,
           ],
         ),
-        if (job.isDownloading) ...[
-          const SizedBox(height: 6),
-          SizedBox(
-            height: 2,
-            width: double.infinity,
-            child: LinearProgressIndicator(
-              value: job.progress,
-              minHeight: 2,
-              backgroundColor: const Color(0xFF242424),
-              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.crimson),
-            ),
-          ),
-        ],
-      ],
+      ),
     );
   }
 }
@@ -4870,10 +4819,7 @@ class _AlreadyOwnedDownloadGroup extends StatelessWidget {
         ),
         if (expanded) ...[
           const SizedBox(height: 8),
-          for (final job in jobs) ...[
-            _DownloadQueueJobTile(job: job),
-            const SizedBox(height: 8),
-          ],
+          for (final job in jobs) _DownloadQueueJobTile(job: job),
         ],
       ],
     );
@@ -4955,11 +4901,11 @@ class _DownloadPanelHeaderIconButtonState
         onTap: widget.onPressed,
         behavior: HitTestBehavior.opaque,
         child: SizedBox(
-          width: 24,
+          width: 18,
           height: 24,
           child: Icon(
             widget.icon,
-            size: 17,
+            size: 16,
             color: _hovered ? Colors.white : AppTheme.textMuted,
           ),
         ),

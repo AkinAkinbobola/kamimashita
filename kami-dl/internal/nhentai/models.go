@@ -46,9 +46,10 @@ type Image struct {
 }
 
 type SearchResult struct {
-	Results []SearchItem `json:"results"`
-	Total   int          `json:"total"`
-	PerPage int          `json:"per_page"`
+	Results  []SearchItem `json:"results"`
+	Total    int          `json:"total"`
+	NumPages int          `json:"num_pages"`
+	PerPage  int          `json:"per_page"`
 }
 
 type SearchItem struct {

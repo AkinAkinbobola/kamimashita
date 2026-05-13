@@ -42,10 +42,11 @@ var (
 )
 
 type searchAPIResponse struct {
-	Results []searchAPIItem `json:"results"`
-	Result  []searchAPIItem `json:"result"`
-	Total   int             `json:"total"`
-	PerPage int             `json:"per_page"`
+	Results  []searchAPIItem `json:"results"`
+	Result   []searchAPIItem `json:"result"`
+	Total    int             `json:"total"`
+	NumPages int             `json:"num_pages"`
+	PerPage  int             `json:"per_page"`
 }
 
 type searchAPIItem struct {
@@ -160,16 +161,20 @@ func (c *Client) FetchGallery(ctx context.Context, id string) (*Gallery, error) 
 	return nil, ErrMaxRetriesReached
 }
 
-func (c *Client) SearchGalleries(ctx context.Context, query string, page int) (*SearchResult, error) {
+func (c *Client) SearchGalleries(ctx context.Context, query string, page int, sort string) (*SearchResult, error) {
 	requestCtx, cancel := context.WithTimeout(contextOrBackground(ctx), MetadataRequestTimeout)
 	defer cancel()
 
 	if page < 1 {
 		page = 1
 	}
+	sort = strings.TrimSpace(sort)
+	if sort == "" {
+		sort = "popular"
+	}
 	params := url.Values{}
 	params.Set("query", query)
-	params.Set("sort", "popular")
+	params.Set("sort", sort)
 	params.Set("page", strconv.Itoa(page))
 
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, APIBase+"/search?"+params.Encode(), nil)
@@ -202,9 +207,10 @@ func (c *Client) SearchGalleries(ctx context.Context, query string, page int) (*
 	}
 
 	result := &SearchResult{
-		Results: make([]SearchItem, 0, len(items)),
-		Total:   payload.Total,
-		PerPage: payload.PerPage,
+		Results:  make([]SearchItem, 0, len(items)),
+		Total:    payload.Total,
+		NumPages: payload.NumPages,
+		PerPage:  payload.PerPage,
 	}
 	for _, item := range items {
 		title := strings.TrimSpace(item.EnglishTitle)

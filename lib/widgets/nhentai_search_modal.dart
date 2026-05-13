@@ -37,15 +37,17 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
   final Set<String> _selectedIds = <String>{};
   final List<_NhentaiSearchItem> _results = <_NhentaiSearchItem>[];
 
+  String _selectedSort = 'popular';
   int _page = 1;
   int _total = 0;
+  int _numPages = 0;
   bool _isLoadingOwned = true;
   bool _isSearching = false;
   bool _isLoadingMore = false;
   bool _isQueueing = false;
   String? _message;
 
-  bool get _hasMore => _results.length < _total;
+  bool get _hasMore => _page < _numPages;
 
   @override
   void initState() {
@@ -97,18 +99,20 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
       _message = null;
       _page = 1;
       _total = 0;
+      _numPages = 0;
       _results.clear();
       _selectedIds.clear();
     });
 
     try {
-      final result = await _fetchPage(query, 1);
+      final result = await _fetchPage(query, 1, _selectedSort);
       if (!mounted) {
         return;
       }
       setState(() {
         _results.addAll(result.results);
         _total = result.total;
+        _numPages = result.numPages;
       });
     } catch (error) {
       if (!mounted) {
@@ -135,7 +139,7 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
     });
 
     try {
-      final result = await _fetchPage(query, nextPage);
+      final result = await _fetchPage(query, nextPage, _selectedSort);
       if (!mounted) {
         return;
       }
@@ -143,6 +147,7 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
         _page = nextPage;
         _results.addAll(result.results);
         _total = result.total;
+        _numPages = result.numPages;
       });
     } catch (error) {
       if (!mounted) {
@@ -156,10 +161,18 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
     }
   }
 
-  Future<_NhentaiSearchResult> _fetchPage(String query, int page) async {
+  Future<_NhentaiSearchResult> _fetchPage(
+    String query,
+    int page,
+    String sort,
+  ) async {
     final response = await _dio.get<Object>(
       '/search',
-      queryParameters: <String, Object>{'query': query, 'page': page},
+      queryParameters: <String, Object>{
+        'query': query,
+        'page': page,
+        'sort': sort,
+      },
     );
     final json = response.data;
     if (json is! Map) {
@@ -236,6 +249,16 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
     });
   }
 
+  void _handleSortChanged(String sort) {
+    if (sort == _selectedSort) {
+      return;
+    }
+    setState(() => _selectedSort = sort);
+    if (_queryController.text.trim().isNotEmpty) {
+      unawaited(_search());
+    }
+  }
+
   String _cleanError(Object error) {
     return error.toString().replaceFirst('DioException: ', '');
   }
@@ -258,10 +281,25 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
                 _Header(onClose: () => Navigator.of(context).pop()),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: _SearchField(
-                    controller: _queryController,
-                    isLoading: _isSearching,
-                    onSearch: _search,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _SearchField(
+                        controller: _queryController,
+                        selectedSort: _selectedSort,
+                        isLoading: _isSearching,
+                        onSortChanged: _handleSortChanged,
+                        onSearch: _search,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '$_total results',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppTheme.textMuted,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Expanded(child: _buildBody(theme)),
@@ -386,12 +424,16 @@ class _Header extends StatelessWidget {
 class _SearchField extends StatelessWidget {
   const _SearchField({
     required this.controller,
+    required this.selectedSort,
     required this.isLoading,
+    required this.onSortChanged,
     required this.onSearch,
   });
 
   final TextEditingController controller;
+  final String selectedSort;
   final bool isLoading;
+  final ValueChanged<String> onSortChanged;
   final VoidCallback onSearch;
 
   @override
@@ -433,11 +475,60 @@ class _SearchField extends StatelessWidget {
               ),
             ),
           ),
+          _SortDropdown(
+            value: selectedSort,
+            onChanged: onSortChanged,
+          ),
           _IconActionButton(
             icon: isLoading ? Icons.hourglass_empty : Icons.search,
             onTap: isLoading ? null : onSearch,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SortDropdown extends StatelessWidget {
+  const _SortDropdown({required this.value, required this.onChanged});
+
+  static const _options = <String, String>{
+    'popular': 'Popular',
+    'date': 'Recent',
+    'popular-today': 'Today',
+    'popular-week': 'This Week',
+    'popular-month': 'This Month',
+  };
+
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
+        value: value,
+        dropdownColor: const Color(0xFF1A1A1A),
+        iconEnabledColor: AppTheme.textMuted,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: AppTheme.textSecondary,
+          fontWeight: FontWeight.w600,
+        ),
+        items: _options.entries
+            .map(
+              (entry) => DropdownMenuItem<String>(
+                value: entry.key,
+                child: Text(entry.value),
+              ),
+            )
+            .toList(growable: false),
+        onChanged: (nextValue) {
+          if (nextValue != null) {
+            onChanged(nextValue);
+          }
+        },
       ),
     );
   }
@@ -740,7 +831,11 @@ class _TextActionButton extends StatelessWidget {
 }
 
 class _NhentaiSearchResult {
-  const _NhentaiSearchResult({required this.results, required this.total});
+  const _NhentaiSearchResult({
+    required this.results,
+    required this.total,
+    required this.numPages,
+  });
 
   factory _NhentaiSearchResult.fromJson(Map<String, Object?> json) {
     final rawResults = json['results'];
@@ -756,11 +851,13 @@ class _NhentaiSearchResult {
                 .toList(growable: false)
           : const <_NhentaiSearchItem>[],
       total: _readInt(json['total']),
+      numPages: _readInt(json['num_pages']),
     );
   }
 
   final List<_NhentaiSearchItem> results;
   final int total;
+  final int numPages;
 }
 
 class _NhentaiSearchItem {

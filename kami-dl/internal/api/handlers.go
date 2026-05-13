@@ -88,7 +88,12 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 		page = parsed
 	}
 
-	result, err := h.manager.SearchGalleries(r.Context(), query, page)
+	sort := strings.TrimSpace(r.URL.Query().Get("sort"))
+	if sort == "" {
+		sort = "popular"
+	}
+
+	result, err := h.manager.SearchGalleries(r.Context(), query, page, sort)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

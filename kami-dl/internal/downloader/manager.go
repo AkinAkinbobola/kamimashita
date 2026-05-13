@@ -225,8 +225,8 @@ func (m *Manager) ListOwned() []string {
 	return ids
 }
 
-func (m *Manager) SearchGalleries(ctx context.Context, query string, page int) (*nhentai.SearchResult, error) {
-	return m.client.SearchGalleries(ctx, query, page)
+func (m *Manager) SearchGalleries(ctx context.Context, query string, page int, sort string) (*nhentai.SearchResult, error) {
+	return m.client.SearchGalleries(ctx, query, page, sort)
 }
 
 func (m *Manager) FetchThumbnail(ctx context.Context, path string) ([]byte, string, error) {
