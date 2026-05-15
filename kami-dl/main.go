@@ -101,6 +101,17 @@ func main() {
 	defer cancelRuntime()
 	manager.Start(runtimeCtx)
 
+	go func() {
+    log.Printf("scanning library at %s", *output)
+    ids, err := archiveBuilder.ScanLibrary(runtimeCtx)
+    if err != nil && err != context.Canceled {
+        log.Printf("library scan error: %v", err)
+        return
+    }
+    manager.LoadOwned(ids)
+    log.Printf("library scan complete: %d owned galleries loaded", len(ids))
+	}()
+
 	handlers := api.NewHandlers(manager, recentLogs.Lines)
 	router := api.NewRouter(handlers)
 
