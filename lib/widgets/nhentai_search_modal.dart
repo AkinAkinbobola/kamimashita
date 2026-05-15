@@ -148,7 +148,6 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
     setState(() {
       _isSearching = true;
       _message = null;
-      _selectedIds.clear();
     });
 
     try {
