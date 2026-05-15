@@ -43,6 +43,9 @@ type Manager struct {
 	subscribers     map[int]chan models.Progress
 	nextSubscriber  int
 	shuttingDown    bool
+
+	ownedMu  sync.RWMutex
+	ownedIDs map[string]struct{}
 }
 
 func NewManager(client *nhentai.Client, archiveBuilder *builder.Builder, outputPath string) *Manager {
@@ -55,6 +58,7 @@ func NewManager(client *nhentai.Client, archiveBuilder *builder.Builder, outputP
 		currentCancels: make(map[string]context.CancelFunc),
 		scheduledIDs:   make(map[string]struct{}),
 		subscribers:    make(map[int]chan models.Progress),
+		ownedIDs:       make(map[string]struct{}),
 	}
 }
 
@@ -85,6 +89,15 @@ func (m *Manager) Stop() {
 	}
 	m.currentProgress = nil
 	m.stateMu.Unlock()
+}
+
+// LoadOwned seeds the owned set from a library scan. Does not touch m.jobs.
+func (m *Manager) LoadOwned(ids []string) {
+	m.ownedMu.Lock()
+	defer m.ownedMu.Unlock()
+	for _, id := range ids {
+		m.ownedIDs[id] = struct{}{}
+	}
 }
 
 func (m *Manager) Enqueue(ids []string) error {
@@ -210,18 +223,16 @@ func (m *Manager) ListJobs() []models.Job {
 	return jobs
 }
 
+// ListOwned reads from the dedicated ownedIDs set, not from m.jobs.
 func (m *Manager) ListOwned() []string {
-	m.stateMu.RLock()
-	defer m.stateMu.RUnlock()
+	m.ownedMu.RLock()
+	defer m.ownedMu.RUnlock()
 
-	ids := make([]string, 0, len(m.jobs))
-	for id, job := range m.jobs {
-		if job.Status == models.StatusDone || job.Status == models.StatusDuplicate {
-			ids = append(ids, id)
-		}
+	ids := make([]string, 0, len(m.ownedIDs))
+	for id := range m.ownedIDs {
+		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-
 	return ids
 }
 
@@ -239,9 +250,7 @@ func (m *Manager) ClearFinished() int {
 
 	cleared := 0
 	for id, job := range m.jobs {
-		if job.Status != models.StatusDone &&
-			job.Status != models.StatusDuplicate &&
-			job.Status != models.StatusFailed {
+		if job.Status != models.StatusFailed {
 			continue
 		}
 		delete(m.jobs, id)
@@ -343,11 +352,15 @@ func (m *Manager) processGallery(ctx context.Context, galleryID string) {
 		return
 	}
 	if duplicate {
-		m.updateJob(galleryID, func(job *models.Job) {
-			job.Status = models.StatusDuplicate
-			job.Error = ""
-			job.UpdatedAt = time.Now()
-		})
+		// Already on disk — mark owned and remove from job queue.
+		m.ownedMu.Lock()
+		m.ownedIDs[galleryID] = struct{}{}
+		m.ownedMu.Unlock()
+
+		m.stateMu.Lock()
+		delete(m.jobs, galleryID)
+		m.stateMu.Unlock()
+
 		m.publishProgress(models.Progress{GalleryID: galleryID, Title: title, TotalPages: gallery.NumPages, Percentage: 100, Status: string(models.StatusDuplicate), ElapsedMs: time.Since(startedAt).Milliseconds()})
 		return
 	}
@@ -411,12 +424,15 @@ func (m *Manager) processGallery(ctx context.Context, galleryID string) {
 		return
 	}
 
-	m.updateJob(galleryID, func(job *models.Job) {
-		job.Status = models.StatusDone
-		job.Error = ""
-		job.Title = title
-		job.UpdatedAt = time.Now()
-	})
+	// Download complete — mark owned and remove from job queue.
+	m.ownedMu.Lock()
+	m.ownedIDs[galleryID] = struct{}{}
+	m.ownedMu.Unlock()
+
+	m.stateMu.Lock()
+	delete(m.jobs, galleryID)
+	m.stateMu.Unlock()
+
 	m.publishProgress(models.Progress{GalleryID: galleryID, Title: title, CurrentPage: gallery.NumPages, TotalPages: gallery.NumPages, Percentage: 100, Status: string(models.StatusDone), ElapsedMs: time.Since(startedAt).Milliseconds()})
 }
 

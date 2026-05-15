@@ -241,27 +241,13 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-            elevation: 0,
-            backgroundColor: const Color(0xFF1A1A1A),
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.zero,
-            ),
-            content: Text(
-              '${ids.length} galleries queued',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        );
-      Navigator.of(context).pop();
+      // Stay in the modal — mark queued items as owned so they grey out,
+      // clear the selection, and let the user keep browsing.
+      setState(() {
+        _ownedIds.addAll(ids);
+        _selectedIds.clear();
+        _isQueueing = false;
+      });
     } catch (error) {
       if (!mounted) {
         return;
@@ -372,7 +358,9 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
     }
 
     final display = _displayResults;
-    final hasResults = display.isNotEmpty;
+    // Use raw _results for hasResults so pagination stays visible even when
+    // all items on the current page are hidden by the owned filter.
+    final hasResults = _results.isNotEmpty;
 
     return Column(
       children: [
@@ -393,7 +381,7 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
             ),
           ),
         Expanded(
-          child: hasResults
+          child: display.isNotEmpty
               ? GridView.builder(
                   controller: _resultsScrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -417,7 +405,11 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
                 )
               : Center(
                   child: Text(
-                    _isSearching ? 'Searching...' : 'No results yet',
+                    _isSearching
+                        ? 'Searching...'
+                        : hasResults
+                            ? 'All results on this page are owned'
+                            : 'No results yet',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: AppTheme.textMuted,
                     ),
@@ -923,12 +915,14 @@ class _BottomBar extends StatelessWidget {
           _TextActionButton(
             label: 'Queue All',
             enabled: hasQueueableResults && !isQueueing,
-            onTap: onQueueAll,
+            onTap: _queueAllSafe(onQueueAll),
           ),
         ],
       ),
     );
   }
+
+  VoidCallback _queueAllSafe(VoidCallback fn) => fn;
 }
 
 class _IconActionButton extends StatelessWidget {
