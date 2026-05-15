@@ -41,6 +41,7 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
   final List<_NhentaiSearchItem> _results = <_NhentaiSearchItem>[];
 
   String _selectedSort = 'date';
+  bool _showOwned = false;
   int _page = 1;
   int _total = 0;
   int _numPages = 0;
@@ -48,6 +49,10 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
   bool _isSearching = false;
   bool _isQueueing = false;
   String? _message;
+
+  List<_NhentaiSearchItem> get _displayResults => _showOwned
+      ? _results
+      : _results.where((item) => !_ownedIds.contains(item.id)).toList(growable: false);
 
   @override
   void initState() {
@@ -208,12 +213,21 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
   }
 
   Future<void> _queueAll() {
-    final ids = _results
+    final ids = _displayResults
         .where((item) => !_ownedIds.contains(item.id))
         .map((item) => item.id)
-        .toSet()
         .toList(growable: false);
     return _queueIds(ids);
+  }
+
+  void _selectAll() {
+    setState(() {
+      for (final item in _displayResults) {
+        if (!_ownedIds.contains(item.id)) {
+          _selectedIds.add(item.id);
+        }
+      }
+    });
   }
 
   Future<void> _queueIds(List<String> ids) async {
@@ -299,7 +313,12 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
             color: const Color(0xFF1A1A1A),
             child: Column(
               children: [
-                _Header(onClose: () => Navigator.of(context).pop()),
+                _Header(
+                  showOwned: _showOwned,
+                  onToggleShowOwned: () =>
+                      setState(() => _showOwned = !_showOwned),
+                  onClose: () => Navigator.of(context).pop(),
+                ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                   child: Column(
@@ -326,12 +345,12 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
                 Expanded(child: _buildBody(theme)),
                 _BottomBar(
                   selectedCount: _selectedIds.length,
-                  hasQueueableResults: _results.any(
-                    (item) => !_ownedIds.contains(item.id),
-                  ),
+                  hasQueueableResults: _displayResults
+                      .any((item) => !_ownedIds.contains(item.id)),
                   isQueueing: _isQueueing,
                   onQueueSelected: _selectedIds.isEmpty ? null : _queueSelected,
                   onQueueAll: _queueAll,
+                  onSelectAll: _displayResults.isEmpty ? null : _selectAll,
                 ),
               ],
             ),
@@ -352,7 +371,9 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
       );
     }
 
-    final hasResults = _results.isNotEmpty;
+    final display = _displayResults;
+    final hasResults = display.isNotEmpty;
+
     return Column(
       children: [
         if (_message != null)
@@ -382,12 +403,13 @@ class _NhentaiSearchModalState extends State<NhentaiSearchModal> {
                     mainAxisSpacing: 2,
                     childAspectRatio: 3 / 4,
                   ),
-                  itemCount: _results.length,
+                  itemCount: display.length,
                   itemBuilder: (context, index) {
-                    final item = _results[index];
+                    final item = display[index];
+                    final isOwned = _ownedIds.contains(item.id);
                     return _ResultCard(
                       item: item,
-                      isOwned: _ownedIds.contains(item.id),
+                      isOwned: isOwned,
                       isSelected: _selectedIds.contains(item.id),
                       onTap: () => _toggleSelection(item),
                     );
@@ -444,14 +466,12 @@ class _PaginationBar extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Prev arrow
           _PaginationArrow(
             icon: Icons.chevron_left,
             enabled: onPrev != null && !isLoading,
             onTap: onPrev,
           ),
           const SizedBox(width: 6),
-          // Page number input
           SizedBox(
             width: 40,
             height: 26,
@@ -510,7 +530,6 @@ class _PaginationBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          // "of X" label
           Text(
             'of $numPages',
             style: theme.textTheme.bodySmall?.copyWith(
@@ -519,7 +538,6 @@ class _PaginationBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          // Next arrow
           _PaginationArrow(
             icon: Icons.chevron_right,
             enabled: onNext != null && !isLoading,
@@ -555,7 +573,9 @@ class _PaginationArrow extends StatelessWidget {
           child: Icon(
             icon,
             size: 20,
-            color: enabled ? const Color(0xFF00E5FF) : AppTheme.textMuted.withOpacity(0.35),
+            color: enabled
+                ? const Color(0xFF00E5FF)
+                : AppTheme.textMuted.withOpacity(0.35),
           ),
         ),
       ),
@@ -564,8 +584,14 @@ class _PaginationArrow extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.onClose});
+  const _Header({
+    required this.showOwned,
+    required this.onToggleShowOwned,
+    required this.onClose,
+  });
 
+  final bool showOwned;
+  final VoidCallback onToggleShowOwned;
   final VoidCallback onClose;
 
   @override
@@ -583,6 +609,11 @@ class _Header extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          _IconActionButton(
+            icon: showOwned ? Icons.visibility : Icons.visibility_off,
+            active: showOwned,
+            onTap: onToggleShowOwned,
+          ),
           _IconActionButton(icon: Icons.close, onTap: onClose),
         ],
       ),
@@ -718,12 +749,10 @@ class _ResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectable = !isOwned;
-
     return MouseRegion(
-      cursor: selectable ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      cursor: isOwned ? SystemMouseCursors.basic : SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: selectable ? onTap : null,
+        onTap: isOwned ? null : onTap,
         behavior: HitTestBehavior.opaque,
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -854,6 +883,7 @@ class _BottomBar extends StatelessWidget {
     required this.isQueueing,
     required this.onQueueSelected,
     required this.onQueueAll,
+    required this.onSelectAll,
   });
 
   final int selectedCount;
@@ -861,6 +891,7 @@ class _BottomBar extends StatelessWidget {
   final bool isQueueing;
   final VoidCallback? onQueueSelected;
   final VoidCallback onQueueAll;
+  final VoidCallback? onSelectAll;
 
   @override
   Widget build(BuildContext context) {
@@ -875,6 +906,12 @@ class _BottomBar extends StatelessWidget {
               color: AppTheme.textMuted,
               fontWeight: FontWeight.w500,
             ),
+          ),
+          const SizedBox(width: 12),
+          _TextActionButton(
+            label: 'Select All',
+            enabled: onSelectAll != null && !isQueueing,
+            onTap: onSelectAll ?? () {},
           ),
           const Spacer(),
           _FilledActionButton(
@@ -895,26 +932,37 @@ class _BottomBar extends StatelessWidget {
 }
 
 class _IconActionButton extends StatelessWidget {
-  const _IconActionButton({required this.icon, required this.onTap});
+  const _IconActionButton({
+    required this.icon,
+    required this.onTap,
+    this.active,
+  });
 
   final IconData icon;
   final VoidCallback? onTap;
+  final bool? active;
 
   @override
   Widget build(BuildContext context) {
+    final Color color;
+    if (onTap == null) {
+      color = AppTheme.textMuted;
+    } else if (active == true) {
+      color = const Color(0xFF00E5FF);
+    } else {
+      color = AppTheme.textSecondary;
+    }
+
     return MouseRegion(
-      cursor: onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
+      cursor:
+          onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
       child: GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: SizedBox(
           width: 36,
           height: 36,
-          child: Icon(
-            icon,
-            size: 18,
-            color: onTap == null ? AppTheme.textMuted : AppTheme.textSecondary,
-          ),
+          child: Icon(icon, size: 18, color: color),
         ),
       ),
     );
@@ -945,7 +993,9 @@ class _FilledActionButton extends StatelessWidget {
           child: Text(
             label,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: enabled ? const Color(0xFF03161A) : const Color(0xFFB4DDE3),
+              color: enabled
+                  ? const Color(0xFF03161A)
+                  : const Color(0xFFB4DDE3),
               fontWeight: FontWeight.w700,
             ),
           ),
